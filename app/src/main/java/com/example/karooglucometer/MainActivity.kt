@@ -72,7 +72,7 @@ class MainActivity : ComponentActivity() {
                         if (response.isSuccessful) {
                             // Take the JSON data from the response body and parse it into a
                             // GlucoseData object
-                            response.body?.string()?.let { jsonData ->
+                            response.body.string().let { jsonData ->
                                 val data = Gson().fromJson(jsonData, GlucoseData::class.java)
 
                                 // Update the state variables with the new data
@@ -101,7 +101,7 @@ class MainActivity : ComponentActivity() {
         )
     }
 
-    // This is the new "Stateless" Composable for the UI layout
+    // This a "Stateless" Composable for the UI layout
     @Composable
     fun GlucoseLayout(glucoseValue: String, minutesAgo: String, trendArrow: String) {
         Column(
@@ -138,8 +138,8 @@ class MainActivity : ComponentActivity() {
         KarooGlucometerTheme {
             // Call the stateless layout directly with hardcoded example data
             GlucoseLayout(
-                glucoseValue = "105",
-                minutesAgo = "5 min ago",
+                glucoseValue = "65",
+                minutesAgo = "1 min ago",
                 trendArrow = "↘︎"
             )
         }
