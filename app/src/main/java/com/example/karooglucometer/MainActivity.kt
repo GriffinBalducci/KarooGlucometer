@@ -5,6 +5,11 @@ import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material3.Icon
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.North
+import androidx.compose.material.icons.filled.South
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -32,12 +37,16 @@ data class GlucoseData(
 )
 
 class MainActivity : ComponentActivity() {
-    private val client = OkHttpClient()
+    // Only initialize on runtime (for preview compatibility)
+    private lateinit var client: OkHttpClient
     private val phoneIp = "YOUR_PHONE_IP_HERE" // REPLACE THIS WITH PHONE'S IP
     private val url = "http://$phoneIp:17580/sgv.json"
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        client = OkHttpClient()
+
         setContent {
             KarooGlucometerTheme {
                 // Render main surface container
@@ -55,13 +64,9 @@ class MainActivity : ComponentActivity() {
     // This is the "Stateful" Composable that handles data and logic
     @Composable
     fun GlucoseDisplay(client: OkHttpClient, url: String) {
-        // State variable that holds the real-time glucose information
         val glucoseValue = remember { mutableStateOf("---") }
         val minutesAgo = remember { mutableStateOf("-- min ago") }
-        val trendArrow = remember { mutableStateOf("▲") }
 
-        // Use LaunchedEffect with coroutine to continuously fetch data every 30 seconds
-        // Unit key: This ensures the coroutine is launched only once
         LaunchedEffect(Unit) {
             withContext(Dispatchers.IO) {
                 while (isActive) {
@@ -70,16 +75,11 @@ class MainActivity : ComponentActivity() {
                         val response = client.newCall(request).execute()
 
                         if (response.isSuccessful) {
-                            // Take the JSON data from the response body and parse it into a
-                            // GlucoseData object
                             response.body.string().let { jsonData ->
                                 val data = Gson().fromJson(jsonData, GlucoseData::class.java)
-
-                                // Update the state variables with the new data
                                 withContext(Dispatchers.Main) {
                                     glucoseValue.value = data.sgv
                                     minutesAgo.value = "${data.age} min ago"
-                                    trendArrow.value = data.direction
                                 }
                             }
                         } else {
@@ -88,40 +88,52 @@ class MainActivity : ComponentActivity() {
                     } catch (e: Exception) {
                         Log.e("GlucoseApp", "Error fetching data", e)
                     }
-                    delay(30000L) // Wait 30 seconds before fetching again
+                    delay(30000L)
                 }
             }
         }
 
-        // Pass the data to the stateless layout
         GlucoseLayout(
             glucoseValue = glucoseValue.value,
             minutesAgo = minutesAgo.value,
-            trendArrow = trendArrow.value
         )
     }
 
-    // This a "Stateless" Composable for the UI layout
+    // Stateless UI layout
     @Composable
-    fun GlucoseLayout(glucoseValue: String, minutesAgo: String, trendArrow: String) {
+    fun GlucoseLayout(glucoseValue: String, minutesAgo: String) {
+        val value = glucoseValue.toIntOrNull() ?: -1
+
+        // Decide which icon to show
+        val icon = when {
+            value in 80..140 -> Icons.Filled.Check // in range
+            value in 0..80 -> Icons.Filled.South // low
+            value > 140 -> Icons.Filled.North // high
+            else -> null
+        }
+
         Column(
             modifier = Modifier.fillMaxSize(),
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically
-            ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     text = glucoseValue,
                     fontSize = 96.sp,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.tertiary
                 )
-                Text(
-                    text = trendArrow,
-                    fontSize = 48.sp,
-                    modifier = Modifier.padding(start = 16.dp)
-                )
+                if (icon != null) {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = "Glucose Status",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier
+                            .size(48.dp)
+                            .padding(start = 16.dp)
+                    )
+                }
             }
             Text(
                 text = minutesAgo,
@@ -131,17 +143,42 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    // Preview: Used for Android Studio DEVELOPMENT Previewing
-    @Preview(showBackground = true)
+    @Preview(showBackground = true, name = "In Range")
     @Composable
-    fun DefaultPreview() {
+    fun PreviewInRange() {
         KarooGlucometerTheme {
-            // Call the stateless layout directly with hardcoded example data
-            GlucoseLayout(
-                glucoseValue = "65",
-                minutesAgo = "1 min ago",
-                trendArrow = "↘︎"
-            )
+            Surface(
+                modifier = Modifier.fillMaxSize(),
+                color = MaterialTheme.colorScheme.background
+            ) {
+                GlucoseLayout(glucoseValue = "90", minutesAgo = "1 min ago")
+            }
+        }
+    }
+
+    @Preview(showBackground = true, name = "Low")
+    @Composable
+    fun PreviewLow() {
+        KarooGlucometerTheme {
+            Surface(
+                modifier = Modifier.fillMaxSize(),
+                color = MaterialTheme.colorScheme.background
+            ) {
+                GlucoseLayout(glucoseValue = "60", minutesAgo = "4 min ago")
+            }
+        }
+    }
+
+    @Preview(showBackground = true, name = "High")
+    @Composable
+    fun PreviewHigh() {
+        KarooGlucometerTheme {
+            Surface(
+                modifier = Modifier.fillMaxSize(),
+                color = MaterialTheme.colorScheme.background
+            ) {
+                GlucoseLayout(glucoseValue = "200", minutesAgo = "2 min ago")
+            }
         }
     }
 }
