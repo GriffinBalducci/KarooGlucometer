@@ -7,24 +7,25 @@ package com.example.karooglucometer.network
 
 import android.content.Context
 import androidx.room.Room
+import com.example.karooglucometer.data.GlucoseDao
 import com.example.karooglucometer.data.GlucoseDatabase
 import com.example.karooglucometer.data.GlucoseReading
 import kotlinx.coroutines.*
 import okhttp3.*
 
-class GlucoseFetcher(private val context: Context) {
-    // OkHttpClient for network requests
+class GlucoseFetcher(context: Context) {
     private val client = OkHttpClient()
+    private val db: GlucoseDatabase
+    private val dao: GlucoseDao
 
-    // Database setup
-    private val db = Room.databaseBuilder(
-        context,
-        GlucoseDatabase::class.java,
-        "glucose_db"
-    ).build()
-
-    // DAO for database operations
-    private val dao = db.glucoseDao()
+    init {
+        db = Room.databaseBuilder(
+            context.applicationContext,   // safe app context
+            GlucoseDatabase::class.java,
+            "glucose_db"
+        ).build()
+        dao = db.glucoseDao()
+    }
 
     // Fetch and save data from the given phone IP
     fun fetchAndSave(phoneIp: String) {
@@ -46,8 +47,7 @@ class GlucoseFetcher(private val context: Context) {
                     // Create a new GlucoseReading and save it to the database
                     val reading = GlucoseReading(
                         timestamp = System.currentTimeMillis(),
-                        glucoseValue = value,
-                        trend = null
+                        glucoseValue = value
                     )
 
                     // Insert the reading into the database using thread safety

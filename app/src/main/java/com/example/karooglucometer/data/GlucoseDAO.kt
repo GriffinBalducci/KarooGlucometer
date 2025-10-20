@@ -28,4 +28,8 @@ interface GlucoseDao {
     // clear() deletes all entries from the database
     @Query("DELETE FROM glucose_readings")
     suspend fun clear()
+
+    // getRecent() returns the most recent 5 GlucoseReadings
+    @Query("SELECT * FROM glucose_readings ORDER BY timestamp DESC LIMIT 5")
+    suspend fun getRecent(): List<GlucoseReading>
 }

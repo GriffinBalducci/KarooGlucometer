@@ -4,48 +4,66 @@ import android.os.Bundle
 import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
-import androidx.compose.material3.Icon
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.North
 import androidx.compose.material.icons.filled.South
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.google.gson.Gson
-import kotlinx.coroutines.*
-import okhttp3.OkHttpClient
-import okhttp3.Request
+import androidx.room.Room
+import com.example.karooglucometer.data.GlucoseDatabase
+import com.example.karooglucometer.data.GlucoseReading
+import com.example.karooglucometer.network.GlucoseFetcher
 import com.example.karooglucometer.ui.theme.KarooGlucometerTheme
-
-// GlucoseData object
-data class GlucoseData(
-    val sgv: String, // JSON key for glucose
-    val direction: String,
-    val age: Int
-)
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
     // Only initialize on runtime (for preview compatibility)
-    private lateinit var client: OkHttpClient
+    private lateinit var db: GlucoseDatabase
+    private lateinit var fetcher: GlucoseFetcher
     private val phoneIp = "YOUR_PHONE_IP_HERE" // REPLACE THIS WITH PHONE'S IP
-    private val url = "http://$phoneIp:17580/sgv.json"
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        client = OkHttpClient()
+        // Create database, and fetcher
+        db = Room.databaseBuilder(
+            applicationContext,
+            GlucoseDatabase::class.java,
+            "glucose_db"
+        ).build()
+        fetcher = GlucoseFetcher(applicationContext)
 
         setContent {
             KarooGlucometerTheme {
@@ -55,129 +73,184 @@ class MainActivity : ComponentActivity() {
                     color = MaterialTheme.colorScheme.background // Set background color
                 ) {
                     // Display glucose data
-                    GlucoseDisplay(client, url)
+                    GlucoseDisplay()
                 }
             }
         }
     }
 
-    // This is the "Stateful" Composable that handles data and logic
+    // Glucose display composable
     @Composable
-    fun GlucoseDisplay(client: OkHttpClient, url: String) {
-        val glucoseValue = remember { mutableStateOf("---") }
-        val minutesAgo = remember { mutableStateOf("-- min ago") }
+    fun GlucoseDisplay() {
+        val dao = remember { db.glucoseDao() }
+        var recent by remember { mutableStateOf(emptyList<GlucoseReading>()) }
 
+        // Background refresh loop (used to update the grid periodically)
         LaunchedEffect(Unit) {
             withContext(Dispatchers.IO) {
                 while (isActive) {
                     try {
-                        val request = Request.Builder().url(url).build()
-                        val response = client.newCall(request).execute()
+                        // Fetch new glucose data from the phone and save to Room
+                        fetcher.fetchAndSave(phoneIp)
 
-                        if (response.isSuccessful) {
-                            response.body.string().let { jsonData ->
-                                val data = Gson().fromJson(jsonData, GlucoseData::class.java)
-                                withContext(Dispatchers.Main) {
-                                    glucoseValue.value = data.sgv
-                                    minutesAgo.value = "${data.age} min ago"
-                                }
-                            }
-                        } else {
-                            Log.e("GlucoseApp", "Network request failed: ${response.code}")
-                        }
-                    } catch (e: Exception) {
-                        Log.e("GlucoseApp", "Error fetching data", e)
+                        // Load the 5 most recent readings from the database
+                        val updated = dao.getRecent()
+
+                        // Push results to UI thread
+                        withContext(Dispatchers.Main) { recent = updated }
                     }
-                    delay(30000L)
+                    catch (e: Exception) {
+                        Log.e("GlucoseApp", "Error updating DB", e)
+                    }
+
+                    // Repeat every 60 seconds
+                    delay(60_000L)
                 }
             }
         }
 
-        GlucoseLayout(
-            glucoseValue = glucoseValue.value,
-            minutesAgo = minutesAgo.value,
-        )
+        // Draw the grid
+        GlucoseGrid(recent)
     }
 
-    // Stateless UI layout
+
+    // Line chart composable
     @Composable
-    fun GlucoseLayout(glucoseValue: String, minutesAgo: String) {
-        val value = glucoseValue.toIntOrNull() ?: -1
+    fun GlucoseLineChart(readings: List<GlucoseReading>) {
+        val lineColor = MaterialTheme.colorScheme.primary
 
-        // Decide which icon to show
-        val icon = when {
-            value in 80..140 -> Icons.Filled.Check // in range
-            value in 0..80 -> Icons.Filled.South // low
-            value > 140 -> Icons.Filled.North // high
-            else -> null
-        }
-
-        Column(
-            modifier = Modifier.fillMaxSize(),
-            verticalArrangement = Arrangement.Center,
-            horizontalAlignment = Alignment.CenterHorizontally
+        Canvas(modifier = Modifier
+            .fillMaxSize()
+            .padding(8.dp)
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = glucoseValue,
-                    fontSize = 96.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.tertiary
-                )
-                if (icon != null) {
-                    Icon(
-                        imageVector = icon,
-                        contentDescription = "Glucose Status",
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier
-                            .size(48.dp)
-                            .padding(start = 16.dp)
+            val points = readings.take(24).sortedBy { it.timestamp }
+            if (points.size > 1) {
+                val max = points.maxOf { it.glucoseValue }
+                val min = points.minOf { it.glucoseValue }
+                val range = (max - min).coerceAtLeast(1)
+                val xStep = size.width / (points.size - 1)
+                val yScale = size.height / range.toFloat()
+
+                for (i in 0 until points.lastIndex) {
+                    val x1 = i * xStep
+                    val x2 = (i + 1) * xStep
+                    val y1 = size.height - (points[i].glucoseValue - min) * yScale
+                    val y2 = size.height - (points[i + 1].glucoseValue - min) * yScale
+
+                    drawLine(
+                        color = lineColor,
+                        start = Offset(x1, y1),
+                        end = Offset(x2, y2),
+                        strokeWidth = 4f
                     )
                 }
             }
-            Text(
-                text = minutesAgo,
-                fontSize = 24.sp,
-                modifier = Modifier.padding(top = 8.dp)
-            )
         }
     }
 
-    @Preview(showBackground = true, name = "In Range")
+
+
+    // Will be the main grid layout
     @Composable
-    fun PreviewInRange() {
-        KarooGlucometerTheme {
-            Surface(
-                modifier = Modifier.fillMaxSize(),
-                color = MaterialTheme.colorScheme.background
+    fun GlucoseGrid(recent: List<GlucoseReading>) {
+        val latest = recent.firstOrNull() // Latest BG
+        val previous = recent.getOrNull(1) // (Latest - 1) BG
+
+        // Calculate the difference between the two - used for trend indicator
+        val diff =
+            latest?.glucoseValue?.minus(previous?.glucoseValue ?: latest.glucoseValue) ?: 0
+
+        // Determine trend indicator
+        val arrow = when {
+            diff > 5 -> Icons.Filled.North
+            diff < -5 -> Icons.Filled.South
+            else -> Icons.Filled.Check
+        }
+
+        Row(Modifier.fillMaxSize().padding(8.dp)) {
+            // Left column (two stacked boxes)
+            Column(
+                Modifier
+                    .weight(1f)
+                    .fillMaxHeight(),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                GlucoseLayout(glucoseValue = "90", minutesAgo = "1 min ago")
+                // Top Left Box --------------------------------------------------------------------
+                Box(
+                    Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                ) {
+                    // Display latest reading
+                    if (latest != null) {
+                        Column(Modifier.align(Alignment.Center)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = "${latest.glucoseValue}",
+                                    fontSize = 64.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Icon(arrow, contentDescription = null,
+                                    Modifier.size(32.dp))
+                            }
+                            // Calculate time since latest reading
+                            Text("${(System.currentTimeMillis() - latest.timestamp) 
+                                    / 60000} min ago")
+                        }
+                    }
+                }
+                // Bottom Left Box -----------------------------------------------------------------
+                Box(
+                    Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                ) {
+                    // Display historical readings
+                    Column(Modifier.align(Alignment.CenterStart).padding(8.dp)) {
+                        recent.drop(1).forEach {
+                            Text("${it.glucoseValue} mg/dL", fontSize = 20.sp)
+                        }
+                    }
+                }
+            }
+
+            Spacer(Modifier.width(8.dp))
+
+            // Right large chart box
+            Box(
+                Modifier
+                    .weight(2f)
+                    .fillMaxHeight()
+                    .background(MaterialTheme.colorScheme.secondary)
+            ) {
+                // Display line chart
+                GlucoseLineChart(readings = recent)
             }
         }
     }
 
-    @Preview(showBackground = true, name = "Low")
+    // PREVIEWS: -----------------------------------------------------------------------------------
+    @Preview(showBackground = true, widthDp = 600, heightDp = 400)
     @Composable
-    fun PreviewLow() {
-        KarooGlucometerTheme {
-            Surface(
-                modifier = Modifier.fillMaxSize(),
-                color = MaterialTheme.colorScheme.background
-            ) {
-                GlucoseLayout(glucoseValue = "60", minutesAgo = "4 min ago")
-            }
-        }
-    }
+    fun PreviewGlucoseGrid() {
+        val sample = listOf(
+            GlucoseReading(id = 1, timestamp = System.currentTimeMillis(), glucoseValue = 125),
+            GlucoseReading(id = 2, timestamp = System.currentTimeMillis() - 5 * 60_000, glucoseValue = 118),
+            GlucoseReading(id = 3, timestamp = System.currentTimeMillis() - 10 * 60_000, glucoseValue = 112),
+            GlucoseReading(id = 4, timestamp = System.currentTimeMillis() - 15 * 60_000, glucoseValue = 108),
+            GlucoseReading(id = 5, timestamp = System.currentTimeMillis() - 20 * 60_000, glucoseValue = 102)
+        )
 
-    @Preview(showBackground = true, name = "High")
-    @Composable
-    fun PreviewHigh() {
         KarooGlucometerTheme {
             Surface(
-                modifier = Modifier.fillMaxSize(),
-                color = MaterialTheme.colorScheme.background
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.background)
+                    .padding(8.dp)
             ) {
-                GlucoseLayout(glucoseValue = "200", minutesAgo = "2 min ago")
+                GlucoseGrid(recent = sample)
             }
         }
     }

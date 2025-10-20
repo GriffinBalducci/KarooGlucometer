@@ -12,6 +12,5 @@ import androidx.room.PrimaryKey
 data class GlucoseReading(
     @PrimaryKey(autoGenerate = true) val id: Int = 0, // Autogenerate unique ID
     val timestamp: Long,
-    val glucoseValue: Int,
-    val trend: String?
+    val glucoseValue: Int
 )
