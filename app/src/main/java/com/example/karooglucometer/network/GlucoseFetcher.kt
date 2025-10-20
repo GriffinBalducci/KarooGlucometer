@@ -15,17 +15,12 @@ import okhttp3.*
 
 class GlucoseFetcher(context: Context) {
     private val client = OkHttpClient()
-    private val db: GlucoseDatabase
-    private val dao: GlucoseDao
-
-    init {
-        db = Room.databaseBuilder(
-            context.applicationContext,   // safe app context
-            GlucoseDatabase::class.java,
-            "glucose_db"
-        ).build()
-        dao = db.glucoseDao()
-    }
+    private val db: GlucoseDatabase = Room.databaseBuilder(
+        context.applicationContext,   // safe app context
+        GlucoseDatabase::class.java,
+        "glucose_db"
+    ).build()
+    private val dao: GlucoseDao = db.glucoseDao()
 
     // Fetch and save data from the given phone IP
     fun fetchAndSave(phoneIp: String) {
