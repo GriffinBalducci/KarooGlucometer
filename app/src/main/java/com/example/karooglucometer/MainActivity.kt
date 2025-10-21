@@ -42,6 +42,7 @@ import androidx.room.Room
 import com.example.karooglucometer.data.GlucoseDatabase
 import com.example.karooglucometer.data.GlucoseReading
 import com.example.karooglucometer.network.GlucoseFetcher
+import com.example.karooglucometer.testing.TestDataService
 import com.example.karooglucometer.ui.theme.KarooGlucometerTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -53,6 +54,9 @@ class MainActivity : ComponentActivity() {
     private lateinit var db: GlucoseDatabase
     private lateinit var fetcher: GlucoseFetcher
     private val phoneIp = "YOUR_PHONE_IP_HERE" // REPLACE THIS WITH PHONE'S IP
+    
+    // Set to true for testing with mock data in IDE
+    private val debugMode = BuildConfig.DEBUG
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -64,6 +68,12 @@ class MainActivity : ComponentActivity() {
             "glucose_db"
         ).build()
         fetcher = GlucoseFetcher(applicationContext)
+        
+        // In debug mode, populate with test data for easy testing
+        if (debugMode) {
+            val testDataService = TestDataService(applicationContext)
+            testDataService.populateTestData()
+        }
 
         setContent {
             KarooGlucometerTheme {
@@ -90,8 +100,14 @@ class MainActivity : ComponentActivity() {
             withContext(Dispatchers.IO) {
                 while (isActive) {
                     try {
-                        // Fetch new glucose data from the phone and save to Room
-                        fetcher.fetchAndSave(phoneIp)
+                        // In debug mode, add mock data instead of fetching from phone
+                        if (debugMode) {
+                            val testDataService = TestDataService(applicationContext)
+                            testDataService.addSingleTestReading()
+                        } else {
+                            // Fetch new glucose data from the phone and save to Room
+                            fetcher.fetchAndSave(phoneIp)
+                        }
 
                         // Load the 5 most recent readings from the database
                         val updated = dao.getRecent()
