@@ -19,8 +19,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.North
 import androidx.compose.material.icons.filled.South
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -41,6 +43,8 @@ import androidx.compose.ui.unit.sp
 import androidx.room.Room
 import com.example.karooglucometer.data.GlucoseDatabase
 import com.example.karooglucometer.data.GlucoseReading
+import com.example.karooglucometer.monitoring.DataSourceMonitor
+import com.example.karooglucometer.monitoring.DebugOverlay
 import com.example.karooglucometer.network.GlucoseFetcher
 import com.example.karooglucometer.testing.TestDataService
 import com.example.karooglucometer.ui.theme.KarooGlucometerTheme
@@ -53,13 +57,18 @@ class MainActivity : ComponentActivity() {
     // Only initialize on runtime (for preview compatibility)
     private lateinit var db: GlucoseDatabase
     private lateinit var fetcher: GlucoseFetcher
-    private val phoneIp = "YOUR_PHONE_IP_HERE" // REPLACE THIS WITH PHONE'S IP
+    private lateinit var monitor: DataSourceMonitor
+    private val phoneIp = "127.0.0.1" // FOR TESTING: Use localhost with mock servers
     
     // Set to true for testing with mock data in IDE
     private val debugMode = BuildConfig.DEBUG
+    private val appStartTime = System.currentTimeMillis()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // Initialize monitoring
+        monitor = DataSourceMonitor(this)
 
         // Create database, and fetcher
         db = Room.databaseBuilder(
@@ -69,21 +78,48 @@ class MainActivity : ComponentActivity() {
         ).build()
         fetcher = GlucoseFetcher(applicationContext)
         
+        // Initialize app status monitoring
+        monitor.updateAppStatus(debugMode, System.currentTimeMillis() - appStartTime)
+        
         // In debug mode, populate with test data for easy testing
         if (debugMode) {
-            val testDataService = TestDataService(applicationContext)
+            val testDataService = TestDataService(applicationContext, monitor)
             testDataService.populateTestData()
         }
 
         setContent {
             KarooGlucometerTheme {
-                // Render main surface container
-                Surface(
-                    modifier = Modifier.fillMaxSize(), // Take up whole phone screen
-                    color = MaterialTheme.colorScheme.background // Set background color
-                ) {
-                    // Display glucose data
-                    GlucoseDisplay()
+                var showDebugOverlay by remember { mutableStateOf(false) }
+                
+                Box(modifier = Modifier.fillMaxSize()) {
+                    // Render main surface container
+                    Surface(
+                        modifier = Modifier.fillMaxSize(), // Take up whole phone screen
+                        color = MaterialTheme.colorScheme.background // Set background color
+                    ) {
+                        // Display glucose data
+                        GlucoseDisplay()
+                    }
+                    
+                    // Debug overlay (only in debug mode)
+                    if (debugMode) {
+                        // Debug toggle button
+                        FloatingActionButton(
+                            onClick = { showDebugOverlay = !showDebugOverlay },
+                            modifier = Modifier
+                                .align(Alignment.TopEnd)
+                                .padding(16.dp)
+                        ) {
+                            Icon(Icons.Default.Info, contentDescription = "Debug Info")
+                        }
+                        
+                        // Debug overlay
+                        DebugOverlay(
+                            monitor = monitor,
+                            isVisible = showDebugOverlay,
+                            onDismiss = { showDebugOverlay = false }
+                        )
+                    }
                 }
             }
         }
@@ -100,17 +136,33 @@ class MainActivity : ComponentActivity() {
             withContext(Dispatchers.IO) {
                 while (isActive) {
                     try {
+                        // Update app uptime
+                        monitor.updateAppStatus(debugMode, System.currentTimeMillis() - appStartTime)
+                        
                         // In debug mode, add mock data instead of fetching from phone
                         if (debugMode) {
-                            val testDataService = TestDataService(applicationContext)
+                            val testDataService = TestDataService(applicationContext, monitor)
                             testDataService.addSingleTestReading()
                         } else {
-                            // Fetch new glucose data from the phone and save to Room
-                            fetcher.fetchAndSave(phoneIp)
+                            // Update HTTP status - attempting connection
+                            monitor.updateHttpStatus(true, 0, null)
+                            
+                            try {
+                                // Fetch new glucose data from the phone and save to Room
+                                fetcher.fetchAndSave(phoneIp)
+                                // Update HTTP status - success
+                                monitor.updateHttpStatus(false, System.currentTimeMillis(), null)
+                            } catch (e: Exception) {
+                                // Update HTTP status - error
+                                monitor.updateHttpStatus(false, 0, e.message)
+                            }
                         }
 
                         // Load the 5 most recent readings from the database
                         val updated = dao.getRecent()
+                        
+                        // Update database status
+                        monitor.updateDatabaseStatus(true, updated.size, System.currentTimeMillis())
 
                         // Push results to UI thread
                         withContext(Dispatchers.Main) { recent = updated }

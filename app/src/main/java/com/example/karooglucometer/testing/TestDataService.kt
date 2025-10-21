@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.room.Room
 import com.example.karooglucometer.data.GlucoseDatabase
 import com.example.karooglucometer.data.GlucoseReading
+import com.example.karooglucometer.monitoring.DataSourceMonitor
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -11,7 +12,7 @@ import kotlinx.coroutines.launch
 /**
  * Service to populate database with test data for development
  */
-class TestDataService(context: Context) {
+class TestDataService(context: Context, private val monitor: DataSourceMonitor? = null) {
     
     private val db: GlucoseDatabase = Room.databaseBuilder(
         context.applicationContext,
@@ -19,11 +20,15 @@ class TestDataService(context: Context) {
         "glucose_db"
     ).build()
     
+    private var totalGenerated = 0
+    
     private val dao = db.glucoseDao()
     private val mockGenerator = MockGlucoseGenerator()
     
     fun populateTestData() {
         CoroutineScope(Dispatchers.IO).launch {
+            monitor?.updateTestDataStatus(true, System.currentTimeMillis(), totalGenerated)
+            
             // Clear existing data
             dao.clear()
             
@@ -32,7 +37,13 @@ class TestDataService(context: Context) {
             
             historicalReadings.forEach { reading ->
                 dao.insert(reading)
+                totalGenerated++
             }
+            
+            // Update monitor with final status
+            val readCount = dao.getRecent().size
+            monitor?.updateDatabaseStatus(true, readCount, System.currentTimeMillis())
+            monitor?.updateTestDataStatus(true, System.currentTimeMillis(), totalGenerated)
         }
     }
     
@@ -40,6 +51,12 @@ class TestDataService(context: Context) {
         CoroutineScope(Dispatchers.IO).launch {
             val newReading = mockGenerator.generateRealisticReading()
             dao.insert(newReading)
+            totalGenerated++
+            
+            // Update monitor
+            val readCount = dao.getRecent().size
+            monitor?.updateDatabaseStatus(true, readCount, System.currentTimeMillis())
+            monitor?.updateTestDataStatus(true, System.currentTimeMillis(), totalGenerated)
         }
     }
     
