@@ -27,7 +27,8 @@ import java.util.*
 fun DebugOverlay(
     monitor: DataSourceMonitor,
     isVisible: Boolean,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    usingTestData: Boolean = false
 ) {
     val status by monitor.statusFlow.collectAsState()
     val logs by monitor.logs.collectAsState()
@@ -109,10 +110,10 @@ fun DebugOverlay(
                         title = "HTTP",
                         isHealthy = status.http.lastSuccessTime > 0 && status.http.lastErrorMessage == null,
                         details = when {
+                            usingTestData -> "Test Data Mode"
                             status.http.isAttempting -> "Connecting..."
                             status.http.lastSuccessTime > 0 -> "Connected"
-                            status.http.lastErrorMessage != null -> "Failed"
-                            status.app.debugMode -> "Disabled (Debug)"
+                            status.http.lastErrorMessage != null -> "Failed: ${status.http.lastErrorMessage?.take(20)}"
                             else -> "Not Connected"
                         },
                         modifier = Modifier.weight(1f)

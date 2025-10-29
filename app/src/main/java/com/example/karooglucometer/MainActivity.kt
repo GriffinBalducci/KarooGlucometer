@@ -58,9 +58,10 @@ class MainActivity : ComponentActivity() {
     private lateinit var db: GlucoseDatabase
     private lateinit var fetcher: GlucoseFetcher
     private lateinit var monitor: DataSourceMonitor
-    private val phoneIp = "127.0.0.1" // FOR TESTING: Use localhost with mock servers
+    private val phoneIp = "127.0.0.1" // Change this to your phone's IP for real testing (e.g., "192.168.1.100")
     
-    // Set to true for testing with mock data in IDE
+    // Set to true for testing with mock data, false to force real xDrip fetching
+    private val useTestData = false // Change to false when testing with real xDrip
     private val debugMode = BuildConfig.DEBUG
     private val appStartTime = System.currentTimeMillis()
 
@@ -81,8 +82,8 @@ class MainActivity : ComponentActivity() {
         // Initialize app status monitoring
         monitor.updateAppStatus(debugMode, System.currentTimeMillis() - appStartTime)
         
-        // In debug mode, populate with test data for easy testing
-        if (debugMode) {
+        // In debug mode with test data enabled, populate with test data for easy testing
+        if (debugMode && useTestData) {
             val testDataService = TestDataService(applicationContext, monitor)
             testDataService.populateTestData()
         }
@@ -117,7 +118,8 @@ class MainActivity : ComponentActivity() {
                         DebugOverlay(
                             monitor = monitor,
                             isVisible = showDebugOverlay,
-                            onDismiss = { showDebugOverlay = false }
+                            onDismiss = { showDebugOverlay = false },
+                            usingTestData = useTestData
                         )
                     }
                 }
@@ -139,8 +141,8 @@ class MainActivity : ComponentActivity() {
                         // Update app uptime
                         monitor.updateAppStatus(debugMode, System.currentTimeMillis() - appStartTime)
                         
-                        // In debug mode, add mock data instead of fetching from phone
-                        if (debugMode) {
+                        // Use test data if enabled, otherwise fetch from xDrip
+                        if (useTestData) {
                             val testDataService = TestDataService(applicationContext, monitor)
                             testDataService.addSingleTestReading()
                         } else {
