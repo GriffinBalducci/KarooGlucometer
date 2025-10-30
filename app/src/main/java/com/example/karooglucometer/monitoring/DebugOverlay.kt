@@ -41,146 +41,160 @@ fun DebugOverlay(
         enter = slideInVertically(),
         exit = slideOutVertically()
     ) {
-        Card(
+        Box(
             modifier = Modifier
-                .fillMaxWidth()
-                .fillMaxHeight(0.7f)
-                .padding(16.dp),
-            shape = RoundedCornerShape(8.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f)
-            )
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.5f))
+                .padding(8.dp)
         ) {
-            Column(
+            Card(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .padding(16.dp)
+                    .fillMaxWidth()
+                    .fillMaxHeight(0.85f)
+                    .align(Alignment.Center),
+                shape = RoundedCornerShape(12.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surface
+                ),
+                elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
             ) {
-                // Header
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(12.dp)
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Info, contentDescription = null)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            "Debug Monitor",
-                            style = MaterialTheme.typography.headlineSmall,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                    
-                    Row {
-                        TextButton(onClick = { monitor.clearLogs() }) {
-                            Text("Clear Logs")
+                    // Header
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                Icons.Default.Info,
+                                contentDescription = null,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                "Debug Monitor",
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 18.sp
+                            )
                         }
+                        
                         IconButton(onClick = onDismiss) {
-                            Icon(Icons.Default.Close, contentDescription = "Close")
-                        }
-                    }
-                }
-                
-                Divider(modifier = Modifier.padding(vertical = 8.dp))
-                
-                // Status Cards
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    StatusCard(
-                        title = "Database",
-                        isHealthy = status.database.isConnected,
-                        details = "Records: ${status.database.lastReadCount}",
-                        modifier = Modifier.weight(1f)
-                    )
-                    StatusCard(
-                        title = "Test Data",
-                        isHealthy = status.testData.isEnabled,
-                        details = "Generated: ${status.testData.totalGenerated}",
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-                
-                Spacer(modifier = Modifier.height(12.dp))
-                
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    StatusCard(
-                        title = "HTTP",
-                        isHealthy = status.http.lastSuccessTime > 0 && status.http.lastErrorMessage == null,
-                        details = when {
-                            usingTestData -> "Test Data Mode"
-                            status.http.isAttempting -> "Connecting..."
-                            status.http.lastSuccessTime > 0 -> "Connected"
-                            status.http.lastErrorMessage != null -> "Failed: ${status.http.lastErrorMessage?.take(20)}"
-                            else -> "Not Connected"
-                        },
-                        modifier = Modifier.weight(1f)
-                    )
-                    StatusCard(
-                        title = "App",
-                        isHealthy = true,
-                        details = "Debug: ${if (status.app.debugMode) "ON" else "OFF"}",
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-                
-                // Network status (if detector available)
-                networkDetector?.let { detector ->
-                    Spacer(modifier = Modifier.height(12.dp))
-                    
-                    var networkStatus by remember { mutableStateOf<com.example.karooglucometer.network.NetworkStatus?>(null) }
-                    
-                    LaunchedEffect(Unit) {
-                        networkStatus = withContext(Dispatchers.IO) {
-                            detector.getNetworkStatus()
+                            Icon(
+                                Icons.Default.Close,
+                                contentDescription = "Close",
+                                modifier = Modifier.size(24.dp)
+                            )
                         }
                     }
                     
-                    networkStatus?.let { status ->
-                        StatusCard(
-                            title = "Network",
-                            isHealthy = status.isBluetoothPanActive,
-                            details = when {
-                                status.isBluetoothPanActive -> "✓ Bluetooth PAN (${status.bluetoothPanIp ?: "No IP"})"
-                                status.networkType == com.example.karooglucometer.network.NetworkType.WIFI -> "WiFi"
-                                status.networkType == com.example.karooglucometer.network.NetworkType.CELLULAR -> "Cellular"
-                                else -> "No Connection"
-                            },
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
-                }
-                
-                Spacer(modifier = Modifier.height(16.dp))
-                
-                // Logs Section
-                Text(
-                    "Recent Activity",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
-                )
-                
-                Spacer(modifier = Modifier.height(8.dp))
-                
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    items(logs) { log ->
-                        LogItem(log)
+                    Divider(modifier = Modifier.padding(vertical = 6.dp))
+                    
+                    // Everything in a scrollable list
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        // Status Cards section
+                        item {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                StatusCard(
+                                    title = "Database",
+                                    isHealthy = status.database.isConnected,
+                                    details = "Records: ${status.database.lastReadCount}",
+                                    modifier = Modifier.weight(1f)
+                                )
+                                StatusCard(
+                                    title = "Test Data",
+                                    isHealthy = status.testData.isEnabled,
+                                    details = "Gen: ${status.testData.totalGenerated}",
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                        }
+                        
+                        item {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                StatusCard(
+                                    title = "HTTP",
+                                    isHealthy = status.http.lastSuccessTime > 0 && status.http.lastErrorMessage == null,
+                                    details = when {
+                                        usingTestData -> "Test Mode"
+                                        status.http.isAttempting -> "Connecting..."
+                                        status.http.lastSuccessTime > 0 -> "Connected"
+                                        status.http.lastErrorMessage != null -> "Failed"
+                                        else -> "No Data"
+                                    },
+                                    modifier = Modifier.weight(1f)
+                                )
+                                StatusCard(
+                                    title = "App",
+                                    isHealthy = true,
+                                    details = "Debug: ${if (status.app.debugMode) "ON" else "OFF"}",
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                        }
+                        
+                        // Network status (if detector available)
+                        networkDetector?.let { detector ->
+                            item {
+                                var networkStatus by remember { mutableStateOf<com.example.karooglucometer.network.NetworkStatus?>(null) }
+                                
+                                LaunchedEffect(Unit) {
+                                    networkStatus = withContext(Dispatchers.IO) {
+                                        detector.getNetworkStatus()
+                                    }
+                                }
+                                
+                                networkStatus?.let { netStatus ->
+                                    StatusCard(
+                                        title = "Network",
+                                        isHealthy = netStatus.isBluetoothPanActive,
+                                        details = when {
+                                            netStatus.isBluetoothPanActive -> "BT PAN (${netStatus.bluetoothPanIp?.takeLast(8) ?: "No IP"})"
+                                            netStatus.networkType == com.example.karooglucometer.network.NetworkType.WIFI -> "WiFi"
+                                            netStatus.networkType == com.example.karooglucometer.network.NetworkType.CELLULAR -> "Cellular"
+                                            else -> "No Network"
+                                        },
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                }
+                            }
+                        }
+                        
+                        // Recent Activity header
+                        item {
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                "Recent Activity",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp
+                            )
+                        }
+                        
+                        // Logs
+                        items(logs) { log ->
+                            LogItem(log)
+                        }
                     }
                 }
             }
         }
     }
-}
-
-@Composable
+}@Composable
 fun StatusCard(
     title: String,
     isHealthy: Boolean,
@@ -188,12 +202,12 @@ fun StatusCard(
     modifier: Modifier = Modifier
 ) {
     Card(
-        modifier = modifier.height(80.dp),
+        modifier = modifier.height(70.dp),
         colors = CardDefaults.cardColors(
             containerColor = if (isHealthy) 
-                Color(0xFF4CAF50).copy(alpha = 0.1f) 
+                Color(0xFF4CAF50).copy(alpha = 0.15f) 
             else 
-                Color(0xFFF44336).copy(alpha = 0.1f)
+                Color(0xFFF44336).copy(alpha = 0.15f)
         )
     ) {
         Column(
@@ -206,22 +220,24 @@ fun StatusCard(
             Text(
                 title,
                 style = MaterialTheme.typography.labelMedium,
-                fontWeight = FontWeight.Bold
+                fontWeight = FontWeight.Bold,
+                fontSize = 11.sp
             )
             
             Box(
                 modifier = Modifier
-                    .size(10.dp)
+                    .size(8.dp)
                     .background(
                         color = if (isHealthy) Color(0xFF4CAF50) else Color(0xFFF44336),
-                        shape = RoundedCornerShape(5.dp)
+                        shape = RoundedCornerShape(4.dp)
                     )
             )
             
             Text(
                 details,
                 style = MaterialTheme.typography.bodySmall,
-                fontSize = 9.sp
+                fontSize = 9.sp,
+                maxLines = 1
             )
         }
     }
