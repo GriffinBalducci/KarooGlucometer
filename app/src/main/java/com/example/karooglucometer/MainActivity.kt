@@ -6,6 +6,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,16 +15,25 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.North
 import androidx.compose.material.icons.filled.South
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -36,6 +46,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -45,20 +56,27 @@ import com.example.karooglucometer.data.GlucoseDatabase
 import com.example.karooglucometer.data.GlucoseReading
 import com.example.karooglucometer.monitoring.DataSourceMonitor
 import com.example.karooglucometer.monitoring.DebugOverlay
+import com.example.karooglucometer.network.ConnectionTester
 import com.example.karooglucometer.network.GlucoseFetcher
+import com.example.karooglucometer.network.NetworkDetector
 import com.example.karooglucometer.testing.TestDataService
 import com.example.karooglucometer.ui.theme.KarooGlucometerTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
-class MainActivity : ComponentActivity() {
+class MainActivity : ComponentActivity() {  
     // Only initialize on runtime (for preview compatibility)
     private lateinit var db: GlucoseDatabase
     private lateinit var fetcher: GlucoseFetcher
     private lateinit var monitor: DataSourceMonitor
-    private val phoneIp = "127.0.0.1" // Change this to your phone's IP for real testing (e.g., "192.168.1.100")
+    private lateinit var networkDetector: NetworkDetector
+    private lateinit var connectionTester: ConnectionTester
+    private val phoneIp = "10.0.2.2" // Special IP for emulator to access host machine (use real phone IP like "192.168.1.100" for actual device)
     
     // Set to true for testing with mock data, false to force real xDrip fetching
     private val useTestData = false // Change to false when testing with real xDrip
@@ -70,6 +88,8 @@ class MainActivity : ComponentActivity() {
 
         // Initialize monitoring
         monitor = DataSourceMonitor(this)
+        networkDetector = NetworkDetector(this)
+        connectionTester = ConnectionTester()
 
         // Create database, and fetcher
         db = Room.databaseBuilder(
@@ -91,15 +111,23 @@ class MainActivity : ComponentActivity() {
         setContent {
             KarooGlucometerTheme {
                 var showDebugOverlay by remember { mutableStateOf(false) }
+                var showFullscreenGlucose by remember { mutableStateOf(false) }
                 
                 Box(modifier = Modifier.fillMaxSize()) {
                     // Render main surface container
                     Surface(
-                        modifier = Modifier.fillMaxSize(), // Take up whole phone screen
-                        color = MaterialTheme.colorScheme.background // Set background color
+                        modifier = Modifier.fillMaxSize(),
+                        color = MaterialTheme.colorScheme.background
                     ) {
-                        // Display glucose data
-                        GlucoseDisplay()
+                        if (showFullscreenGlucose) {
+                            FullscreenGlucoseView(
+                                onBack = { showFullscreenGlucose = false }
+                            )
+                        } else {
+                            GlucoseDisplay(
+                                onGlucoseClick = { showFullscreenGlucose = true }
+                            )
+                        }
                     }
                     
                     // Debug overlay (only in debug mode)
@@ -119,7 +147,8 @@ class MainActivity : ComponentActivity() {
                             monitor = monitor,
                             isVisible = showDebugOverlay,
                             onDismiss = { showDebugOverlay = false },
-                            usingTestData = useTestData
+                            usingTestData = useTestData,
+                            networkDetector = networkDetector
                         )
                     }
                 }
@@ -129,7 +158,7 @@ class MainActivity : ComponentActivity() {
 
     // Glucose display composable
     @Composable
-    fun GlucoseDisplay() {
+    fun GlucoseDisplay(onGlucoseClick: () -> Unit = {}) {
         val dao = remember { db.glucoseDao() }
         var recent by remember { mutableStateOf(emptyList<GlucoseReading>()) }
 
@@ -141,6 +170,11 @@ class MainActivity : ComponentActivity() {
                         // Update app uptime
                         monitor.updateAppStatus(debugMode, System.currentTimeMillis() - appStartTime)
                         
+                        // Log network status for debugging (helps verify Bluetooth PAN)
+                        if (debugMode && !useTestData) {
+                            networkDetector.logNetworkStatus()
+                        }
+                        
                         // Use test data if enabled, otherwise fetch from xDrip
                         if (useTestData) {
                             val testDataService = TestDataService(applicationContext, monitor)
@@ -150,12 +184,22 @@ class MainActivity : ComponentActivity() {
                             monitor.updateHttpStatus(true, 0, null)
                             
                             try {
-                                // Fetch new glucose data from the phone and save to Room
+                                // First, test basic connectivity (faster than HTTP timeout)
+                                val connectionTest = connectionTester.testConnection(phoneIp, 17580, 3000)
+                                
+                                if (!connectionTest.success) {
+                                    // Connection test failed - provide detailed error
+                                    throw Exception(connectionTest.errorMessage ?: "Connection test failed")
+                                }
+                                
+                                // Connection test passed, now fetch glucose data
                                 fetcher.fetchAndSave(phoneIp)
+                                
                                 // Update HTTP status - success
                                 monitor.updateHttpStatus(false, System.currentTimeMillis(), null)
                             } catch (e: Exception) {
-                                // Update HTTP status - error
+                                // Update HTTP status - error with detailed message
+                                Log.e("MainActivity", "Failed to fetch glucose data", e)
                                 monitor.updateHttpStatus(false, 0, e.message)
                             }
                         }
@@ -179,8 +223,275 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        // Draw the grid
-        GlucoseGrid(recent)
+        // Modern UI
+        ModernGlucoseUI(recent = recent, onGlucoseClick = onGlucoseClick)
+    }
+
+    // Modern redesigned UI matching debug overlay style
+    @Composable
+    fun ModernGlucoseUI(recent: List<GlucoseReading>, onGlucoseClick: () -> Unit) {
+        val latest = recent.firstOrNull()
+        val previous = recent.getOrNull(1)
+        val diff = latest?.glucoseValue?.minus(previous?.glucoseValue ?: latest.glucoseValue) ?: 0
+        
+        val arrow = when {
+            diff > 5 -> Icons.Filled.North
+            diff < -5 -> Icons.Filled.South
+            else -> Icons.Filled.Check
+        }
+        
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            // Large glucose value card at top (clickable)
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(onClick = onGlucoseClick),
+                shape = RoundedCornerShape(12.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer
+                ),
+                elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    if (latest != null) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            Text(
+                                text = "${latest.glucoseValue}",
+                                fontSize = 72.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                            Spacer(modifier = Modifier.width(16.dp))
+                            Icon(
+                                arrow,
+                                contentDescription = "Trend",
+                                modifier = Modifier.size(48.dp),
+                                tint = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                        }
+                        
+                        Spacer(modifier = Modifier.height(8.dp))
+                        
+                        Text(
+                            text = "mg/dL",
+                            fontSize = 20.sp,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
+                        )
+                        
+                        Spacer(modifier = Modifier.height(4.dp))
+                        
+                        val minutesAgo = (System.currentTimeMillis() - latest.timestamp) / 60000
+                        Text(
+                            text = "$minutesAgo min ago",
+                            fontSize = 16.sp,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.6f)
+                        )
+                    } else {
+                        Text(
+                            text = "No data",
+                            fontSize = 32.sp,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                    }
+                }
+            }
+            
+            // Graph card
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(200.dp),
+                shape = RoundedCornerShape(12.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant
+                ),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+            ) {
+                Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+                    Text(
+                        text = "Glucose Trend",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        GlucoseLineChart(readings = recent)
+                    }
+                }
+            }
+            
+            // Recent readings list
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+                shape = RoundedCornerShape(12.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surface
+                ),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+            ) {
+                Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+                    Text(
+                        text = "Recent Readings",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    
+                    LazyColumn(
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        items(recent) { reading ->
+                            GlucoseReadingItem(reading)
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    // Individual reading item in the list
+    @Composable
+    fun GlucoseReadingItem(reading: GlucoseReading) {
+        val minutesAgo = (System.currentTimeMillis() - reading.timestamp) / 60000
+        val hoursAgo = minutesAgo / 60
+        val timeText = if (hoursAgo > 0) {
+            "${hoursAgo}h ${minutesAgo % 60}m ago"
+        } else {
+            "${minutesAgo}m ago"
+        }
+        
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(
+                    MaterialTheme.colorScheme.surfaceVariant,
+                    RoundedCornerShape(8.dp)
+                )
+                .padding(12.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "${reading.glucoseValue} mg/dL",
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Medium
+            )
+            Text(
+                text = timeText,
+                fontSize = 14.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+            )
+        }
+    }
+    
+    // Full screen glucose view
+    @Composable
+    fun FullscreenGlucoseView(onBack: () -> Unit) {
+        val dao = remember { db.glucoseDao() }
+        var recent by remember { mutableStateOf(emptyList<GlucoseReading>()) }
+        
+        LaunchedEffect(Unit) {
+            withContext(Dispatchers.IO) {
+                val readings = dao.getRecent()
+                withContext(Dispatchers.Main) {
+                    recent = readings
+                }
+            }
+        }
+        
+        val latest = recent.firstOrNull()
+        val previous = recent.getOrNull(1)
+        val diff = latest?.glucoseValue?.minus(previous?.glucoseValue ?: latest.glucoseValue) ?: 0
+        
+        val arrow = when {
+            diff > 5 -> Icons.Filled.North
+            diff < -5 -> Icons.Filled.South
+            else -> Icons.Filled.Check
+        }
+        
+        Box(modifier = Modifier.fillMaxSize()) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.primaryContainer),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                if (latest != null) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Text(
+                            text = "${latest.glucoseValue}",
+                            fontSize = 120.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                        Spacer(modifier = Modifier.width(24.dp))
+                        Icon(
+                            arrow,
+                            contentDescription = "Trend",
+                            modifier = Modifier.size(80.dp),
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                    }
+                    
+                    Spacer(modifier = Modifier.height(16.dp))
+                    
+                    Text(
+                        text = "mg/dL",
+                        fontSize = 32.sp,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
+                    )
+                    
+                    Spacer(modifier = Modifier.height(8.dp))
+                    
+                    val minutesAgo = (System.currentTimeMillis() - latest.timestamp) / 60000
+                    Text(
+                        text = "$minutesAgo minutes ago",
+                        fontSize = 24.sp,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.6f)
+                    )
+                } else {
+                    Text(
+                        text = "No data",
+                        fontSize = 48.sp,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                }
+            }
+            
+            // Back button
+            IconButton(
+                onClick = onBack,
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(16.dp)
+            ) {
+                Icon(
+                    Icons.Filled.ArrowBack,
+                    contentDescription = "Back",
+                    modifier = Modifier.size(32.dp),
+                    tint = MaterialTheme.colorScheme.onPrimaryContainer
+                )
+            }
+        }
     }
 
 
@@ -302,15 +613,16 @@ class MainActivity : ComponentActivity() {
     }
 
     // PREVIEWS: -----------------------------------------------------------------------------------
-    @Preview(showBackground = true, widthDp = 600, heightDp = 400)
+    @Preview(showBackground = true, widthDp = 400, heightDp = 800)
     @Composable
-    fun PreviewGlucoseGrid() {
+    fun PreviewModernGlucoseUI() {
         val sample = listOf(
             GlucoseReading(id = 1, timestamp = System.currentTimeMillis(), glucoseValue = 125),
             GlucoseReading(id = 2, timestamp = System.currentTimeMillis() - 5 * 60_000, glucoseValue = 118),
             GlucoseReading(id = 3, timestamp = System.currentTimeMillis() - 10 * 60_000, glucoseValue = 112),
             GlucoseReading(id = 4, timestamp = System.currentTimeMillis() - 15 * 60_000, glucoseValue = 108),
-            GlucoseReading(id = 5, timestamp = System.currentTimeMillis() - 20 * 60_000, glucoseValue = 102)
+            GlucoseReading(id = 5, timestamp = System.currentTimeMillis() - 20 * 60_000, glucoseValue = 102),
+            GlucoseReading(id = 6, timestamp = System.currentTimeMillis() - 25 * 60_000, glucoseValue = 98)
         )
 
         KarooGlucometerTheme {
@@ -318,10 +630,17 @@ class MainActivity : ComponentActivity() {
                 modifier = Modifier
                     .fillMaxSize()
                     .background(MaterialTheme.colorScheme.background)
-                    .padding(8.dp)
             ) {
-                GlucoseGrid(recent = sample)
+                ModernGlucoseUI(recent = sample, onGlucoseClick = {})
             }
+        }
+    }
+    
+    @Preview(showBackground = true, widthDp = 400, heightDp = 800)
+    @Composable
+    fun PreviewFullscreenGlucose() {
+        KarooGlucometerTheme {
+            FullscreenGlucoseView(onBack = {})
         }
     }
 }

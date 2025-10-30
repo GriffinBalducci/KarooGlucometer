@@ -20,6 +20,8 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -28,7 +30,8 @@ fun DebugOverlay(
     monitor: DataSourceMonitor,
     isVisible: Boolean,
     onDismiss: () -> Unit,
-    usingTestData: Boolean = false
+    usingTestData: Boolean = false,
+    networkDetector: com.example.karooglucometer.network.NetworkDetector? = null
 ) {
     val status by monitor.statusFlow.collectAsState()
     val logs by monitor.logs.collectAsState()
@@ -124,6 +127,33 @@ fun DebugOverlay(
                         details = "Debug: ${if (status.app.debugMode) "ON" else "OFF"}",
                         modifier = Modifier.weight(1f)
                     )
+                }
+                
+                // Network status (if detector available)
+                networkDetector?.let { detector ->
+                    Spacer(modifier = Modifier.height(12.dp))
+                    
+                    var networkStatus by remember { mutableStateOf<com.example.karooglucometer.network.NetworkStatus?>(null) }
+                    
+                    LaunchedEffect(Unit) {
+                        networkStatus = withContext(Dispatchers.IO) {
+                            detector.getNetworkStatus()
+                        }
+                    }
+                    
+                    networkStatus?.let { status ->
+                        StatusCard(
+                            title = "Network",
+                            isHealthy = status.isBluetoothPanActive,
+                            details = when {
+                                status.isBluetoothPanActive -> "✓ Bluetooth PAN (${status.bluetoothPanIp ?: "No IP"})"
+                                status.networkType == com.example.karooglucometer.network.NetworkType.WIFI -> "WiFi"
+                                status.networkType == com.example.karooglucometer.network.NetworkType.CELLULAR -> "Cellular"
+                                else -> "No Connection"
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
                 }
                 
                 Spacer(modifier = Modifier.height(16.dp))
