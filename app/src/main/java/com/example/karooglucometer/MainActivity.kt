@@ -243,10 +243,9 @@ class MainActivity : ComponentActivity() {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+                .padding(16.dp)
         ) {
-            // Large glucose value card at top (clickable)
+            // Large glucose value card at top (clickable) - FIXED, DOESN'T SCROLL
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -309,56 +308,61 @@ class MainActivity : ComponentActivity() {
                 }
             }
             
-            // Graph card
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(200.dp),
-                shape = RoundedCornerShape(12.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant
-                ),
-                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-            ) {
-                Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-                    Text(
-                        text = "Glucose Trend",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Box(modifier = Modifier.fillMaxSize()) {
-                        GlucoseLineChart(readings = recent)
-                    }
-                }
-            }
+            Spacer(modifier = Modifier.height(16.dp))
             
-            // Recent readings list
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f),
-                shape = RoundedCornerShape(12.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surface
-                ),
-                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+            // Scrollable content below the fixed glucose card
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-                    Text(
-                        text = "Recent Readings",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
-                    
-                    LazyColumn(
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                // Graph card
+                item {
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(200.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant
+                        ),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
                     ) {
-                        items(recent) { reading ->
-                            GlucoseReadingItem(reading)
+                        Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+                            Text(
+                                text = "Glucose Trend",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Box(modifier = Modifier.fillMaxSize()) {
+                                GlucoseLineChart(readings = recent)
+                            }
                         }
                     }
+                }
+                
+                // Recent readings header
+                item {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surface
+                        ),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                    ) {
+                        Text(
+                            text = "Recent Readings",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(16.dp)
+                        )
+                    }
+                }
+                
+                // Individual reading items
+                items(recent.size) { index ->
+                    GlucoseReadingItem(recent[index])
                 }
             }
         }
