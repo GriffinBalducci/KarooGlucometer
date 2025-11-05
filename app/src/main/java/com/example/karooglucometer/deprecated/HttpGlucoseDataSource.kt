@@ -1,6 +1,7 @@
-package com.example.karooglucometer.data
+package com.example.karooglucometer.deprecated
 
 import android.util.Log
+import com.example.karooglucometer.data.GlucoseReading
 import com.google.gson.Gson
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -29,11 +30,11 @@ class HttpGlucoseDataSource(
                 val response = client.newCall(request).execute()
                 
                 if (response.isSuccessful) {
-                    val body = response.body?.string()
-                    body?.let { jsonData ->
+                    val body = response.body.string()
+                    body.let { jsonData ->
                         val data = Gson().fromJson(jsonData, GlucoseResponse::class.java)
                         val glucose = data.cgm.glucose.toDoubleOrNull() ?: return@withContext null
-                        
+
                         GlucoseReading(
                             glucoseValue = glucose.toInt(),
                             timestamp = System.currentTimeMillis() // Use current time since server timestamp might be weird

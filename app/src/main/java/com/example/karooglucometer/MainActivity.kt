@@ -1,10 +1,10 @@
 package com.example.karooglucometer
 
+import android.annotation.SuppressLint
 import android.os.Bundle
 import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -20,7 +19,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
@@ -31,7 +29,6 @@ import androidx.compose.material.icons.filled.South
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FloatingActionButton
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -45,8 +42,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -65,11 +61,19 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
+import kotlin.math.roundToInt
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.view.WindowCompat
+import com.github.mikephil.charting.charts.LineChart
+import com.github.mikephil.charting.components.XAxis
+import com.github.mikephil.charting.data.Entry
+import com.github.mikephil.charting.data.LineData
+import com.github.mikephil.charting.data.LineDataSet
+import com.github.mikephil.charting.formatter.ValueFormatter
+import androidx.core.graphics.toColorInt
 
-class MainActivity : ComponentActivity() {  
+
+class MainActivity : ComponentActivity() {
     // Only initialize on runtime (for preview compatibility)
     private lateinit var db: GlucoseDatabase
     private lateinit var fetcher: GlucoseFetcher
@@ -77,14 +81,20 @@ class MainActivity : ComponentActivity() {
     private lateinit var networkDetector: NetworkDetector
     private lateinit var connectionTester: ConnectionTester
     private val phoneIp = "10.0.2.2" // Special IP for emulator to access host machine (use real phone IP like "192.168.1.100" for actual device)
-    
+
     // Set to true for testing with mock data, false to force real xDrip fetching
-    private val useTestData = false // Change to false when testing with real xDrip
+    private val useTestData = true // Change to false when testing with real xDrip
     private val debugMode = BuildConfig.DEBUG
     private val appStartTime = System.currentTimeMillis()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // This code block ensures upper icons remain black
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        window.statusBarColor = android.graphics.Color.TRANSPARENT
+        val windowInsetsController = WindowCompat.getInsetsController(window, window.decorView)
+        windowInsetsController.isAppearanceLightStatusBars = true
 
         // Initialize monitoring
         monitor = DataSourceMonitor(this)
@@ -98,10 +108,10 @@ class MainActivity : ComponentActivity() {
             "glucose_db"
         ).build()
         fetcher = GlucoseFetcher(applicationContext)
-        
+
         // Initialize app status monitoring
         monitor.updateAppStatus(debugMode, System.currentTimeMillis() - appStartTime)
-        
+
         // In debug mode with test data enabled, populate with test data for easy testing
         if (debugMode && useTestData) {
             val testDataService = TestDataService(applicationContext, monitor)
@@ -112,7 +122,7 @@ class MainActivity : ComponentActivity() {
             KarooGlucometerTheme {
                 var showDebugOverlay by remember { mutableStateOf(false) }
                 var showFullscreenGlucose by remember { mutableStateOf(false) }
-                
+
                 Box(modifier = Modifier.fillMaxSize()) {
                     // Render main surface container
                     Surface(
@@ -129,7 +139,7 @@ class MainActivity : ComponentActivity() {
                             )
                         }
                     }
-                    
+
                     // Debug overlay (only in debug mode)
                     if (debugMode) {
                         // Debug toggle button
@@ -141,7 +151,7 @@ class MainActivity : ComponentActivity() {
                         ) {
                             Icon(Icons.Default.Info, contentDescription = "Debug Info")
                         }
-                        
+
                         // Debug overlay
                         DebugOverlay(
                             monitor = monitor,
@@ -169,12 +179,12 @@ class MainActivity : ComponentActivity() {
                     try {
                         // Update app uptime
                         monitor.updateAppStatus(debugMode, System.currentTimeMillis() - appStartTime)
-                        
+
                         // Log network status for debugging (helps verify Bluetooth PAN)
                         if (debugMode && !useTestData) {
                             networkDetector.logNetworkStatus()
                         }
-                        
+
                         // Use test data if enabled, otherwise fetch from xDrip
                         if (useTestData) {
                             val testDataService = TestDataService(applicationContext, monitor)
@@ -182,19 +192,19 @@ class MainActivity : ComponentActivity() {
                         } else {
                             // Update HTTP status - attempting connection
                             monitor.updateHttpStatus(true, 0, null)
-                            
+
                             try {
                                 // First, test basic connectivity (faster than HTTP timeout)
                                 val connectionTest = connectionTester.testConnection(phoneIp, 17580, 3000)
-                                
+
                                 if (!connectionTest.success) {
                                     // Connection test failed - provide detailed error
                                     throw Exception(connectionTest.errorMessage ?: "Connection test failed")
                                 }
-                                
+
                                 // Connection test passed, now fetch glucose data
                                 fetcher.fetchAndSave(phoneIp)
-                                
+
                                 // Update HTTP status - success
                                 monitor.updateHttpStatus(false, System.currentTimeMillis(), null)
                             } catch (e: Exception) {
@@ -206,7 +216,7 @@ class MainActivity : ComponentActivity() {
 
                         // Load the 5 most recent readings from the database
                         val updated = dao.getRecent()
-                        
+
                         // Update database status
                         monitor.updateDatabaseStatus(true, updated.size, System.currentTimeMillis())
 
@@ -233,19 +243,19 @@ class MainActivity : ComponentActivity() {
         val latest = recent.firstOrNull()
         val previous = recent.getOrNull(1)
         val diff = latest?.glucoseValue?.minus(previous?.glucoseValue ?: latest.glucoseValue) ?: 0
-        
+
         val arrow = when {
             diff > 5 -> Icons.Filled.North
             diff < -5 -> Icons.Filled.South
             else -> Icons.Filled.Check
         }
-        
+
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(16.dp)
         ) {
-            // Large glucose value card at top (clickable) - FIXED, DOESN'T SCROLL
+            // Top glucose summary card
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -281,18 +291,16 @@ class MainActivity : ComponentActivity() {
                                 tint = MaterialTheme.colorScheme.onPrimaryContainer
                             )
                         }
-                        
+
                         Spacer(modifier = Modifier.height(8.dp))
-                        
                         Text(
                             text = "mg/dL",
                             fontSize = 20.sp,
                             color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
                         )
-                        
-                        Spacer(modifier = Modifier.height(4.dp))
-                        
+
                         val minutesAgo = (System.currentTimeMillis() - latest.timestamp) / 60000
+                        Spacer(modifier = Modifier.height(4.dp))
                         Text(
                             text = "$minutesAgo min ago",
                             fontSize = 16.sp,
@@ -307,41 +315,49 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             }
-            
+
             Spacer(modifier = Modifier.height(16.dp))
-            
-            // Scrollable content below the fixed glucose card
+
+            // Scrollable section
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                // Graph card
+                // Expanded chart card
                 item {
                     Card(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(200.dp),
+                            .height(300.dp),
                         shape = RoundedCornerShape(12.dp),
                         colors = CardDefaults.cardColors(
                             containerColor = MaterialTheme.colorScheme.surfaceVariant
                         ),
                         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
                     ) {
-                        Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(12.dp)
+                        ) {
                             Text(
-                                text = "Glucose Trend",
+                                text = "Glucose Trend (mg/dL)",
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold
                             )
                             Spacer(modifier = Modifier.height(8.dp))
-                            Box(modifier = Modifier.fillMaxSize()) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                            ) {
                                 GlucoseLineChart(readings = recent)
                             }
                         }
                     }
                 }
-                
-                // Recent readings header
+
+                // Recent readings list
                 item {
                     Card(
                         modifier = Modifier.fillMaxWidth(),
@@ -359,15 +375,14 @@ class MainActivity : ComponentActivity() {
                         )
                     }
                 }
-                
-                // Individual reading items
+
                 items(recent.size) { index ->
                     GlucoseReadingItem(recent[index])
                 }
             }
         }
     }
-    
+
     // Individual reading item in the list
     @Composable
     fun GlucoseReadingItem(reading: GlucoseReading) {
@@ -378,7 +393,7 @@ class MainActivity : ComponentActivity() {
         } else {
             "${minutesAgo}m ago"
         }
-        
+
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -402,13 +417,13 @@ class MainActivity : ComponentActivity() {
             )
         }
     }
-    
+
     // Full screen glucose view
     @Composable
     fun FullscreenGlucoseView(onBack: () -> Unit) {
         val dao = remember { db.glucoseDao() }
         var recent by remember { mutableStateOf(emptyList<GlucoseReading>()) }
-        
+
         LaunchedEffect(Unit) {
             withContext(Dispatchers.IO) {
                 val readings = dao.getRecent()
@@ -417,17 +432,17 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
-        
+
         val latest = recent.firstOrNull()
         val previous = recent.getOrNull(1)
         val diff = latest?.glucoseValue?.minus(previous?.glucoseValue ?: latest.glucoseValue) ?: 0
-        
+
         val arrow = when {
             diff > 5 -> Icons.Filled.North
             diff < -5 -> Icons.Filled.South
             else -> Icons.Filled.Check
         }
-        
+
         Box(modifier = Modifier.fillMaxSize()) {
             Column(
                 modifier = Modifier
@@ -455,17 +470,17 @@ class MainActivity : ComponentActivity() {
                             tint = MaterialTheme.colorScheme.onPrimaryContainer
                         )
                     }
-                    
+
                     Spacer(modifier = Modifier.height(16.dp))
-                    
+
                     Text(
                         text = "mg/dL",
                         fontSize = 32.sp,
                         color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
                     )
-                    
+
                     Spacer(modifier = Modifier.height(8.dp))
-                    
+
                     val minutesAgo = (System.currentTimeMillis() - latest.timestamp) / 60000
                     Text(
                         text = "$minutesAgo minutes ago",
@@ -480,7 +495,7 @@ class MainActivity : ComponentActivity() {
                     )
                 }
             }
-            
+
             // Back button
             IconButton(
                 onClick = onBack,
@@ -498,125 +513,209 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-
-    // Line chart composable
+    // Generates the line chart
+    @SuppressLint("UseKtx")
     @Composable
     fun GlucoseLineChart(readings: List<GlucoseReading>) {
-        val lineColor = MaterialTheme.colorScheme.primary
+        val themePrimary = MaterialTheme.colorScheme.primary.toArgb()  // Onyx
+        val themeText = MaterialTheme.colorScheme.onSurface.toArgb()   // Black
+        val themeGrid = MaterialTheme.colorScheme.outlineVariant.toArgb()  // Light gray
+        val backgroundColor = MaterialTheme.colorScheme.surface.toArgb()  // White
 
-        Canvas(modifier = Modifier
-            .fillMaxSize()
-            .padding(8.dp)
-        ) {
-            val points = readings.take(24).sortedBy { it.timestamp }
-            if (points.size > 1) {
-                val max = points.maxOf { it.glucoseValue }
-                val min = points.minOf { it.glucoseValue }
-                val range = (max - min).coerceAtLeast(1)
-                val xStep = size.width / (points.size - 1)
-                val yScale = size.height / range.toFloat()
+        // Your custom colors for thresholds
+        val bloodRed = "#C1121F".toColorInt()    // BloodRed
+        val amber = "#FFBF00".toColorInt()       // Amber
+        val forestGreen = "#228B22".toColorInt() // Forest_Green
 
-                for (i in 0 until points.lastIndex) {
-                    val x1 = i * xStep
-                    val x2 = (i + 1) * xStep
-                    val y1 = size.height - (points[i].glucoseValue - min) * yScale
-                    val y2 = size.height - (points[i + 1].glucoseValue - min) * yScale
+        AndroidView(
+            factory = { context ->
+                LineChart(context).apply {
+                    // Basic chart setup
+                    description.isEnabled = false
+                    setTouchEnabled(true)
+                    isDragEnabled = true
+                    setScaleEnabled(true)
+                    setPinchZoom(true)
+                    setDrawGridBackground(false)
+                    setBackgroundColor(backgroundColor)
+                    setNoDataText("No glucose data available")
 
-                    drawLine(
-                        color = lineColor,
-                        start = Offset(x1, y1),
-                        end = Offset(x2, y2),
-                        strokeWidth = 4f
-                    )
-                }
-            }
-        }
-    }
+                    // Extra offset for better visibility
+                    extraBottomOffset = 10f
+                    extraTopOffset = 10f
 
+                    // Legend configuration
+                    legend.apply {
+                        isEnabled = true
+                        textSize = 12f
+                        textColor = themeText
+                        form = com.github.mikephil.charting.components.Legend.LegendForm.LINE
+                        formSize = 12f
+                        xEntrySpace = 10f
+                        yEntrySpace = 5f
+                    }
 
+                    // Right axis - disabled
+                    axisRight.isEnabled = false
 
-    // Will be the main grid layout
-    @Composable
-    fun GlucoseGrid(recent: List<GlucoseReading>) {
-        val latest = recent.firstOrNull() // Latest BG
-        val previous = recent.getOrNull(1) // (Latest - 1) BG
+                    // Left axis - glucose values
+                    axisLeft.apply {
+                        textColor = themeText
+                        textSize = 11f
+                        gridColor = themeGrid
+                        setDrawGridLines(true)
+                        setDrawAxisLine(true)
+                        axisLineColor = themeText
+                        axisLineWidth = 1.5f
 
-        // Calculate the difference between the two - used for trend indicator
-        val diff =
-            latest?.glucoseValue?.minus(previous?.glucoseValue ?: latest.glucoseValue) ?: 0
+                        // Set reasonable glucose range
+                        axisMinimum = 50f
+                        axisMaximum = 250f
 
-        // Determine trend indicator
-        val arrow = when {
-            diff > 5 -> Icons.Filled.North
-            diff < -5 -> Icons.Filled.South
-            else -> Icons.Filled.Check
-        }
+                        // Add target range limit lines with YOUR colors
+                        removeAllLimitLines()
 
-        Row(Modifier.fillMaxSize().padding(8.dp)) {
-            // Left column (two stacked boxes)
-            Column(
-                Modifier
-                    .weight(1f)
-                    .fillMaxHeight(),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                // Top Left Box --------------------------------------------------------------------
-                Box(
-                    Modifier
-                        .weight(1f)
-                        .fillMaxWidth()
-                        .background(MaterialTheme.colorScheme.surfaceVariant)
-                ) {
-                    // Display latest reading
-                    if (latest != null) {
-                        Column(Modifier.align(Alignment.Center)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(
-                                    text = "${latest.glucoseValue}",
-                                    fontSize = 64.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Icon(arrow, contentDescription = null,
-                                    Modifier.size(32.dp))
+                        // Low threshold (70 mg/dL) - Blood Red
+                        addLimitLine(
+                            com.github.mikephil.charting.components.LimitLine(70f, "Low").apply {
+                                lineWidth = 2f
+                                lineColor = bloodRed
+                                labelPosition = com.github.mikephil.charting.components.LimitLine.LimitLabelPosition.RIGHT_TOP
+                                textSize = 10f
+                                textColor = bloodRed
                             }
-                            // Calculate time since latest reading
-                            Text("${(System.currentTimeMillis() - latest.timestamp) 
-                                    / 60000} min ago")
+                        )
+
+                        // High threshold (180 mg/dL) - Amber
+                        addLimitLine(
+                            com.github.mikephil.charting.components.LimitLine(180f, "High").apply {
+                                lineWidth = 2f
+                                lineColor = amber
+                                labelPosition = com.github.mikephil.charting.components.LimitLine.LimitLabelPosition.RIGHT_BOTTOM
+                                textSize = 10f
+                                textColor = amber
+                            }
+                        )
+
+                        // Target zone (125 mg/dL) - Forest Green
+                        addLimitLine(
+                            com.github.mikephil.charting.components.LimitLine(125f, "Target").apply {
+                                lineWidth = 1f
+                                lineColor = forestGreen
+                                enableDashedLine(10f, 5f, 0f)
+                                labelPosition = com.github.mikephil.charting.components.LimitLine.LimitLabelPosition.RIGHT_TOP
+                                textSize = 9f
+                                textColor = forestGreen
+                            }
+                        )
+
+                        // Draw limit lines behind data for better visibility
+                        setDrawLimitLinesBehindData(true)
+                    }
+
+                    // X-Axis - time labels
+                    xAxis.apply {
+                        position = XAxis.XAxisPosition.BOTTOM
+                        textColor = themeText
+                        textSize = 10f
+                        gridColor = themeGrid
+                        setDrawGridLines(true)
+                        setDrawAxisLine(true)
+                        axisLineColor = themeText
+                        axisLineWidth = 1.5f
+                        granularity = 1f
+                        labelRotationAngle = -45f
+
+                        // Show max 12 labels for readability
+                        setLabelCount(12, false)
+                    }
+
+                    // Animation
+                    animateX(800)
+                }
+            },
+            update = { chart ->
+                if (readings.isEmpty()) {
+                    chart.clear()
+                    chart.notifyDataSetChanged()
+                    chart.invalidate()
+                    return@AndroidView
+                }
+
+                // Sort by timestamp (oldest to newest for proper line drawing)
+                val sorted = readings.sortedBy { it.timestamp }
+
+                // Create entries with sequential x-values
+                val entries = sorted.mapIndexed { index, reading ->
+                    Entry(index.toFloat(), reading.glucoseValue.toFloat())
+                }
+
+                // Create dataset with enhanced styling - ONYX line color
+                val dataSet = LineDataSet(entries, "Blood Glucose").apply {
+                    // Line appearance - Onyx (your primary color)
+                    color = themePrimary
+                    lineWidth = 3f
+
+                    // Smooth curve for better visualization
+                    mode = LineDataSet.Mode.CUBIC_BEZIER
+                    cubicIntensity = 0.15f
+
+                    // Circles at data points - Onyx
+                    setDrawCircles(true)
+                    circleRadius = 5f
+                    setCircleColor(themePrimary)
+                    circleHoleRadius = 2.5f
+                    circleHoleColor = backgroundColor
+                    setDrawCircleHole(true)
+
+                    // Fill under the line - Onyx with transparency
+                    setDrawFilled(true)
+                    fillColor = themePrimary
+                    fillAlpha = 40
+
+                    // Value labels on points
+                    setDrawValues(true)
+                    valueTextSize = 9f
+                    valueTextColor = themeText
+                    valueFormatter = object : ValueFormatter() {
+                        override fun getFormattedValue(value: Float): String {
+                            return "${value.toInt()}"
+                        }
+                    }
+
+                    // Highlight settings for touch - Amber highlight
+                    highLightColor = amber
+                    setDrawHighlightIndicators(true)
+                    highlightLineWidth = 1.5f
+                }
+
+                // Custom X-axis formatter showing time
+                chart.xAxis.valueFormatter = object : ValueFormatter() {
+                    override fun getFormattedValue(value: Float): String {
+                        val idx = value.roundToInt().coerceIn(sorted.indices)
+                        val minutesAgo = (System.currentTimeMillis() - sorted[idx].timestamp) / 60000
+
+                        return when {
+                            minutesAgo < 60 -> "${minutesAgo}m"
+                            minutesAgo < 1440 -> "${minutesAgo / 60}h ${minutesAgo % 60}m"
+                            else -> "${minutesAgo / 1440}d"
                         }
                     }
                 }
-                // Bottom Left Box -----------------------------------------------------------------
-                Box(
-                    Modifier
-                        .weight(1f)
-                        .fillMaxWidth()
-                        .background(MaterialTheme.colorScheme.surfaceVariant)
-                ) {
-                    // Display historical readings
-                    Column(Modifier.align(Alignment.CenterStart).padding(8.dp)) {
-                        recent.drop(1).forEach {
-                            Text("${it.glucoseValue} mg/dL", fontSize = 20.sp)
-                        }
-                    }
-                }
-            }
 
-            Spacer(Modifier.width(8.dp))
+                // Set data and refresh
+                chart.data = LineData(dataSet)
+                chart.notifyDataSetChanged()
+                chart.invalidate()
 
-            // Right large chart box
-            Box(
-                Modifier
-                    .weight(2f)
-                    .fillMaxHeight()
-                    .background(MaterialTheme.colorScheme.secondary)
-            ) {
-                // Display line chart
-                GlucoseLineChart(readings = recent)
-            }
-        }
+                // Auto-scale to show all data with some padding
+                chart.fitScreen()
+            },
+            modifier = Modifier.fillMaxSize()
+        )
     }
 
-    // PREVIEWS: -----------------------------------------------------------------------------------
+    // PREVIEWS
     @Preview(showBackground = true, widthDp = 400, heightDp = 800)
     @Composable
     fun PreviewModernGlucoseUI() {
@@ -639,7 +738,7 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
-    
+
     @Preview(showBackground = true, widthDp = 400, heightDp = 800)
     @Composable
     fun PreviewFullscreenGlucose() {
