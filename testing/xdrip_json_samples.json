@@ -1,0 +1,199 @@
+{
+  "description": "Real xDrip+ JSON samples for testing compatibility",
+  "samples": {
+    
+    "typical_reading": [
+      {
+        "_id": "6541a8f0e4b02a8c9b7d3e1f",
+        "sgv": 125,
+        "date": 1698789120000,
+        "dateString": "2023-10-31T14:32:00.000Z",
+        "trend": 4,
+        "direction": "Flat",
+        "device": "xDrip-DexcomG6",
+        "type": "sgv",
+        "filtered": 125000,
+        "unfiltered": 125000,
+        "rssi": 100,
+        "noise": 1,
+        "sysTime": "2023-10-31T14:32:00.123Z"
+      }
+    ],
+    
+    "rising_glucose": [
+      {
+        "_id": "6541a8f0e4b02a8c9b7d3e20",
+        "sgv": 145,
+        "date": 1698789420000,
+        "dateString": "2023-10-31T14:37:00.000Z",
+        "trend": 3,
+        "direction": "FortyFiveUp",
+        "device": "xDrip-DexcomG6", 
+        "type": "sgv",
+        "filtered": 145000,
+        "unfiltered": 145000,
+        "rssi": 95,
+        "noise": 1
+      }
+    ],
+    
+    "falling_glucose": [
+      {
+        "_id": "6541a8f0e4b02a8c9b7d3e21",
+        "sgv": 98,
+        "date": 1698789720000,
+        "dateString": "2023-10-31T14:42:00.000Z",
+        "trend": 6,
+        "direction": "FortyFiveDown", 
+        "device": "xDrip-DexcomG6",
+        "type": "sgv",
+        "filtered": 98000,
+        "unfiltered": 98000,
+        "rssi": 88,
+        "noise": 2
+      }
+    ],
+    
+    "stale_reading": [
+      {
+        "_id": "6541a8f0e4b02a8c9b7d3e22",
+        "sgv": 112,
+        "date": 1698788220000,
+        "dateString": "2023-10-31T14:17:00.000Z",
+        "trend": 4,
+        "direction": "Flat",
+        "device": "xDrip-DexcomG6",
+        "type": "sgv",
+        "filtered": 112000,
+        "unfiltered": 112000,
+        "rssi": 70,
+        "noise": 3,
+        "stale": true
+      }
+    ],
+    
+    "libre_format": [
+      {
+        "_id": "6541a8f0e4b02a8c9b7d3e23", 
+        "sgv": 138,
+        "date": 1698790020000,
+        "dateString": "2023-10-31T14:47:00.000Z",
+        "direction": "Flat",
+        "device": "xDrip-LibreLink",
+        "type": "sgv",
+        "trend": 4,
+        "source": "LibreLink"
+      }
+    ],
+    
+    "multiple_readings": [
+      {
+        "_id": "6541a8f0e4b02a8c9b7d3e24",
+        "sgv": 122,
+        "date": 1698790320000,
+        "dateString": "2023-10-31T14:52:00.000Z",
+        "trend": 4,
+        "direction": "Flat",
+        "device": "xDrip-DexcomG6"
+      },
+      {
+        "_id": "6541a8f0e4b02a8c9b7d3e25", 
+        "sgv": 119,
+        "date": 1698790020000,
+        "dateString": "2023-10-31T14:47:00.000Z",
+        "trend": 5,
+        "direction": "FortyFiveDown",
+        "device": "xDrip-DexcomG6"
+      },
+      {
+        "_id": "6541a8f0e4b02a8c9b7d3e26",
+        "sgv": 125,
+        "date": 1698789720000, 
+        "dateString": "2023-10-31T14:42:00.000Z",
+        "trend": 4,
+        "direction": "Flat",
+        "device": "xDrip-DexcomG6"
+      }
+    ],
+    
+    "edge_cases": {
+      
+      "very_high": [
+        {
+          "_id": "6541a8f0e4b02a8c9b7d3e27",
+          "sgv": 350,
+          "date": 1698790620000,
+          "direction": "SingleUp",
+          "trend": 2,
+          "device": "xDrip-DexcomG6"
+        }
+      ],
+      
+      "very_low": [
+        {
+          "_id": "6541a8f0e4b02a8c9b7d3e28", 
+          "sgv": 45,
+          "date": 1698790920000,
+          "direction": "DoubleDown",
+          "trend": 7,
+          "device": "xDrip-DexcomG6"
+        }
+      ],
+      
+      "missing_fields": [
+        {
+          "_id": "6541a8f0e4b02a8c9b7d3e29",
+          "sgv": 115,
+          "date": 1698791220000
+        }
+      ],
+      
+      "string_glucose": [
+        {
+          "_id": "6541a8f0e4b02a8c9b7d3e30",
+          "sgv": "120",
+          "date": 1698791520000,
+          "direction": "Flat"
+        }
+      ],
+      
+      "null_values": [
+        {
+          "_id": "6541a8f0e4b02a8c9b7d3e31",
+          "sgv": null,
+          "date": 1698791820000,
+          "direction": null
+        }
+      ]
+    }
+  },
+  
+  "test_scenarios": {
+    "description": "Common testing scenarios with expected behavior",
+    
+    "normal_operation": {
+      "data": "typical_reading",
+      "expected": "Glucose value 125 parsed and stored successfully"
+    },
+    
+    "trend_detection": {
+      "data": "rising_glucose", 
+      "expected": "Trend arrow shows upward direction"
+    },
+    
+    "error_handling": {
+      "data": "null_values",
+      "expected": "App handles null values gracefully, skips invalid readings"
+    },
+    
+    "format_compatibility": {
+      "data": "libre_format",
+      "expected": "Works with different CGM device formats"
+    },
+    
+    "multiple_readings": {
+      "data": "multiple_readings",
+      "expected": "App processes array of readings, shows most recent"
+    }
+  }
+}
