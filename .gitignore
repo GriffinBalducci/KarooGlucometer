@@ -21,3 +21,15 @@ local.properties
 # IDE temp files
 .idea/misc.xml
 .idea/deploymentTargetSelector.xml
+
+# Room schema output
+app/schemas/
+
+# Testing temporary files
+testing/**/*.log
+testing/**/*.tmp
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo

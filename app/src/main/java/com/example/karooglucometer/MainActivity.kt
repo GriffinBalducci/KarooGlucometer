@@ -21,7 +21,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.North
@@ -42,6 +42,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
@@ -51,12 +52,13 @@ import androidx.room.Room
 import com.example.karooglucometer.data.GlucoseDatabase
 import com.example.karooglucometer.data.GlucoseReading
 import com.example.karooglucometer.monitoring.DataSourceMonitor
-import com.example.karooglucometer.monitoring.DebugOverlay
+import com.example.karooglucometer.monitoring.SimpleDebugOverlay
 import com.example.karooglucometer.network.ConnectionTester
 import com.example.karooglucometer.network.GlucoseFetcher
 import com.example.karooglucometer.network.NetworkDetector
 import com.example.karooglucometer.testing.TestDataService
 import com.example.karooglucometer.ui.theme.KarooGlucometerTheme
+import com.example.karooglucometer.karoo.KarooMetricsService
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -80,26 +82,31 @@ class MainActivity : ComponentActivity() {
     private lateinit var monitor: DataSourceMonitor
     private lateinit var networkDetector: NetworkDetector
     private lateinit var connectionTester: ConnectionTester
-    private val phoneIp = "10.0.2.2" // Special IP for emulator to access host machine (use real phone IP like "192.168.1.100" for actual device)
+    private lateinit var karooMetricsService: KarooMetricsService
+    private var phoneIp by mutableStateOf("10.0.2.2") // Special IP for emulator to access host machine (use real phone IP like "192.168.1.100" for actual device)
 
     // Set to true for testing with mock data, false to force real xDrip fetching
-    private val useTestData = true // Change to false when testing with real xDrip
+    private val useTestData = false // Changed to false to enable real connections
     private val debugMode = BuildConfig.DEBUG
     private val appStartTime = System.currentTimeMillis()
+    
+    // Chart performance optimization - disable complex animations on real device
+    private val enableChartAnimations = false // Disabled to improve performance
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         // This code block ensures upper icons remain black
         WindowCompat.setDecorFitsSystemWindows(window, false)
-        window.statusBarColor = android.graphics.Color.TRANSPARENT
         val windowInsetsController = WindowCompat.getInsetsController(window, window.decorView)
         windowInsetsController.isAppearanceLightStatusBars = true
+        window.statusBarColor = android.graphics.Color.TRANSPARENT
 
         // Initialize monitoring
         monitor = DataSourceMonitor(this)
         networkDetector = NetworkDetector(this)
         connectionTester = ConnectionTester()
+        karooMetricsService = KarooMetricsService(this)
 
         // Create database, and fetcher
         db = Room.databaseBuilder(
@@ -111,6 +118,9 @@ class MainActivity : ComponentActivity() {
 
         // Initialize app status monitoring
         monitor.updateAppStatus(debugMode, System.currentTimeMillis() - appStartTime)
+
+        // Register with Karoo ride metrics system
+        karooMetricsService.registerGlucoseDataSource()
 
         // In debug mode with test data enabled, populate with test data for easy testing
         if (debugMode && useTestData) {
@@ -147,18 +157,21 @@ class MainActivity : ComponentActivity() {
                             onClick = { showDebugOverlay = !showDebugOverlay },
                             modifier = Modifier
                                 .align(Alignment.TopEnd)
-                                .padding(16.dp)
+                                .padding(16.dp),
+                            containerColor = Color(0xFFF5F5F5)
                         ) {
                             Icon(Icons.Default.Info, contentDescription = "Debug Info")
                         }
 
                         // Debug overlay
-                        DebugOverlay(
+                        SimpleDebugOverlay(
                             monitor = monitor,
                             isVisible = showDebugOverlay,
                             onDismiss = { showDebugOverlay = false },
                             usingTestData = useTestData,
-                            networkDetector = networkDetector
+                            networkDetector = networkDetector,
+                            currentPhoneIp = phoneIp,
+                            onIpChanged = { newIp -> phoneIp = newIp }
                         )
                     }
                 }
@@ -183,6 +196,21 @@ class MainActivity : ComponentActivity() {
                         // Log network status for debugging (helps verify Bluetooth PAN)
                         if (debugMode && !useTestData) {
                             networkDetector.logNetworkStatus()
+                            
+                            // Explicit Bluetooth PAN verification
+                            val networkStatus = networkDetector.getNetworkStatus()
+                            Log.d("BluetoothPAN", "=== BLUETOOTH PAN VERIFICATION ===")
+                            Log.d("BluetoothPAN", "Network Type: ${networkStatus.networkType}")
+                            Log.d("BluetoothPAN", "Is Bluetooth PAN Active: ${networkStatus.isBluetoothPanActive}")
+                            Log.d("BluetoothPAN", "Bluetooth PAN IP: ${networkStatus.bluetoothPanIp ?: "None detected"}")
+                            
+                            if (networkStatus.isBluetoothPanActive) {
+                                Log.d("BluetoothPAN", "BLUETOOTH PAN IS WORKING!")
+                                Log.d("BluetoothPAN", "Current IP: $phoneIp, Detected BT-PAN IP: ${networkStatus.bluetoothPanIp}")
+                            } else {
+                                Log.d("BluetoothPAN", "Bluetooth PAN not detected - using ${networkStatus.networkType}")
+                            }
+                            Log.d("BluetoothPAN", "==============================")
                         }
 
                         // Use test data if enabled, otherwise fetch from xDrip
@@ -192,6 +220,7 @@ class MainActivity : ComponentActivity() {
                         } else {
                             // Update HTTP status - attempting connection
                             monitor.updateHttpStatus(true, 0, null)
+                            Log.d("MainActivity", "Starting glucose fetch from $phoneIp")
 
                             try {
                                 // First, test basic connectivity (faster than HTTP timeout)
@@ -199,17 +228,32 @@ class MainActivity : ComponentActivity() {
 
                                 if (!connectionTest.success) {
                                     // Connection test failed - provide detailed error
+                                    Log.e("MainActivity", "Connection test failed: ${connectionTest.errorMessage}")
                                     throw Exception(connectionTest.errorMessage ?: "Connection test failed")
                                 }
 
+                                Log.d("MainActivity", "Connection test passed, fetching glucose data...")
                                 // Connection test passed, now fetch glucose data
                                 fetcher.fetchAndSave(phoneIp)
 
                                 // Update HTTP status - success
                                 monitor.updateHttpStatus(false, System.currentTimeMillis(), null)
+                                Log.d("MainActivity", "Glucose fetch successful")
+                                
+                                // Publish latest reading to Karoo ride metrics
+                                val latestReading = dao.getRecent().firstOrNull()
+                                if (latestReading != null) {
+                                    Log.d("MainActivity", "Publishing to Karoo: ${latestReading.glucoseValue} mg/dL")
+                                    karooMetricsService.publishGlucoseMetric(latestReading)
+                                    // Also publish trend if we have multiple readings
+                                    val recentReadings = dao.getRecent()
+                                    if (recentReadings.size >= 2) {
+                                        karooMetricsService.publishGlucoseTrend(recentReadings)
+                                    }
+                                }
                             } catch (e: Exception) {
                                 // Update HTTP status - error with detailed message
-                                Log.e("MainActivity", "Failed to fetch glucose data", e)
+                                Log.e("MainActivity", "Failed to fetch glucose data from $phoneIp", e)
                                 monitor.updateHttpStatus(false, 0, e.message)
                             }
                         }
@@ -262,7 +306,7 @@ class MainActivity : ComponentActivity() {
                     .clickable(onClick = onGlucoseClick),
                 shape = RoundedCornerShape(12.dp),
                 colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer
+                    containerColor = Color(0xFFF5F5F5)
                 ),
                 elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
             ) {
@@ -331,7 +375,7 @@ class MainActivity : ComponentActivity() {
                             .height(300.dp),
                         shape = RoundedCornerShape(12.dp),
                         colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.surfaceVariant
+                            containerColor = Color(0xFFF5F5F5)
                         ),
                         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
                     ) {
@@ -398,7 +442,7 @@ class MainActivity : ComponentActivity() {
             modifier = Modifier
                 .fillMaxWidth()
                 .background(
-                    MaterialTheme.colorScheme.surfaceVariant,
+                    Color(0xFFF5F5F5),
                     RoundedCornerShape(8.dp)
                 )
                 .padding(12.dp),
@@ -504,7 +548,7 @@ class MainActivity : ComponentActivity() {
                     .padding(16.dp)
             ) {
                 Icon(
-                    Icons.Filled.ArrowBack,
+                    Icons.AutoMirrored.Filled.ArrowBack,
                     contentDescription = "Back",
                     modifier = Modifier.size(32.dp),
                     tint = MaterialTheme.colorScheme.onPrimaryContainer
@@ -630,8 +674,10 @@ class MainActivity : ComponentActivity() {
                         setLabelCount(12, false)
                     }
 
-                    // Animation
-                    animateX(800)
+                    // Animation - only enable on debug builds for performance
+                    if (enableChartAnimations) {
+                        animateX(800)
+                    }
                 }
             },
             update = { chart ->

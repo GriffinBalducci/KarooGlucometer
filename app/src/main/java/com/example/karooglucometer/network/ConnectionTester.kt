@@ -34,7 +34,7 @@ class ConnectionTester {
                     socket.connect(InetSocketAddress(host, port), timeoutMs)
                     val latency = System.currentTimeMillis() - startTime
                     
-                    Log.d(TAG, "✓ Connection successful to $host:$port (${latency}ms)")
+                    Log.d(TAG, "[PASS] Connection successful to $host:$port (${latency}ms)")
                     
                     ConnectionTestResult(
                         success = true,
