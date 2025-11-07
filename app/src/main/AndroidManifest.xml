@@ -6,6 +6,10 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    
+    <!-- Karoo data field permissions -->
+    <uses-permission android:name="io.hammerhead.karoo.permission.DATA_FIELD" />
+    <uses-permission android:name="io.hammerhead.karoo.permission.METRIC_ACCESS" />
 
     <application
         android:allowBackup="true"
@@ -28,6 +32,25 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        
+        <!-- Karoo Data Field Service -->
+        <service
+            android:name=".karoo.KarooDataFieldService"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="io.hammerhead.karoo.DATA_FIELD_SERVICE" />
+            </intent-filter>
+            <meta-data
+                android:name="io.hammerhead.karoo.data_field_name"
+                android:value="Glucose Monitor" />
+            <meta-data
+                android:name="io.hammerhead.karoo.data_field_description"
+                android:value="Real-time blood glucose monitoring from xDrip+" />
+            <meta-data
+                android:name="io.hammerhead.karoo.data_field_version"
+                android:value="1.0" />
+        </service>
     </application>
 
 </manifest>

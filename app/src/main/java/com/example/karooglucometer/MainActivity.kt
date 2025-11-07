@@ -1,7 +1,12 @@
 package com.example.karooglucometer
 
 import android.annotation.SuppressLint
+import android.content.ComponentName
+import android.content.Context
+import android.content.Intent
+import android.content.ServiceConnection
 import android.os.Bundle
+import android.os.IBinder
 import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -58,7 +63,7 @@ import com.example.karooglucometer.network.GlucoseFetcher
 import com.example.karooglucometer.network.NetworkDetector
 import com.example.karooglucometer.testing.TestDataService
 import com.example.karooglucometer.ui.theme.KarooGlucometerTheme
-import com.example.karooglucometer.karoo.KarooMetricsService
+import com.example.karooglucometer.karoo.KarooDataFieldService
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -82,7 +87,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var monitor: DataSourceMonitor
     private lateinit var networkDetector: NetworkDetector
     private lateinit var connectionTester: ConnectionTester
-    private lateinit var karooMetricsService: KarooMetricsService
+    private var karooDataFieldService: KarooDataFieldService? = null
     private var phoneIp by mutableStateOf("10.0.2.2") // Special IP for emulator to access host machine (use real phone IP like "192.168.1.100" for actual device)
 
     // Set to true for testing with mock data, false to force real xDrip fetching
@@ -106,7 +111,6 @@ class MainActivity : ComponentActivity() {
         monitor = DataSourceMonitor(this)
         networkDetector = NetworkDetector(this)
         connectionTester = ConnectionTester()
-        karooMetricsService = KarooMetricsService(this)
 
         // Create database, and fetcher
         db = Room.databaseBuilder(
@@ -119,8 +123,8 @@ class MainActivity : ComponentActivity() {
         // Initialize app status monitoring
         monitor.updateAppStatus(debugMode, System.currentTimeMillis() - appStartTime)
 
-        // Register with Karoo ride metrics system
-        karooMetricsService.registerGlucoseDataSource()
+        // Start Karoo Data Field Service for ride profile integration
+        startKarooDataFieldService()
 
         // In debug mode with test data enabled, populate with test data for easy testing
         if (debugMode && useTestData) {
@@ -240,16 +244,11 @@ class MainActivity : ComponentActivity() {
                                 monitor.updateHttpStatus(false, System.currentTimeMillis(), null)
                                 Log.d("MainActivity", "Glucose fetch successful")
                                 
-                                // Publish latest reading to Karoo ride metrics
+                                // Update Karoo Data Field Service with new glucose reading
                                 val latestReading = dao.getRecent().firstOrNull()
                                 if (latestReading != null) {
                                     Log.d("MainActivity", "Publishing to Karoo: ${latestReading.glucoseValue} mg/dL")
-                                    karooMetricsService.publishGlucoseMetric(latestReading)
-                                    // Also publish trend if we have multiple readings
-                                    val recentReadings = dao.getRecent()
-                                    if (recentReadings.size >= 2) {
-                                        karooMetricsService.publishGlucoseTrend(recentReadings)
-                                    }
+                                    karooDataFieldService?.updateGlucoseReading(latestReading)
                                 }
                             } catch (e: Exception) {
                                 // Update HTTP status - error with detailed message
@@ -782,6 +781,33 @@ class MainActivity : ComponentActivity() {
             ) {
                 ModernGlucoseUI(recent = sample, onGlucoseClick = {})
             }
+        }
+    }
+    
+    /**
+     * Start Karoo Data Field Service for ride profile integration
+     */
+    private fun startKarooDataFieldService() {
+        try {
+            val serviceIntent = Intent(this, KarooDataFieldService::class.java)
+            val connection = object : android.content.ServiceConnection {
+                override fun onServiceConnected(name: android.content.ComponentName?, service: android.os.IBinder?) {
+                    val binder = service as KarooDataFieldService.LocalBinder
+                    karooDataFieldService = binder.getService()
+                    Log.d("MainActivity", "Connected to Karoo Data Field Service")
+                }
+                
+                override fun onServiceDisconnected(name: android.content.ComponentName?) {
+                    karooDataFieldService = null
+                    Log.d("MainActivity", "Disconnected from Karoo Data Field Service")
+                }
+            }
+            
+            bindService(serviceIntent, connection, BIND_AUTO_CREATE)
+            startService(serviceIntent) // Also start as a regular service
+            
+        } catch (e: Exception) {
+            Log.e("MainActivity", "Failed to start Karoo Data Field Service", e)
         }
     }
 
