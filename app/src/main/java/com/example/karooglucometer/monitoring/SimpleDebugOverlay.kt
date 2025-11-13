@@ -43,17 +43,17 @@ fun SimpleDebugOverlay(
         Surface(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.8f)),
+                .background(Color.Black.copy(alpha = 0.8f)), // Original transparency
             color = Color.Transparent
         ) {
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .fillMaxHeight(0.85f)
-                    .padding(16.dp),
-                shape = RoundedCornerShape(16.dp),
+                    .fillMaxHeight(0.85f) // Original size
+                    .padding(16.dp), // Original padding
+                shape = RoundedCornerShape(12.dp), // Original rounded corners
                 colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surface
+                    containerColor = MaterialTheme.colorScheme.surface // Original theme surface
                 ),
                 elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
             ) {
@@ -73,21 +73,26 @@ fun SimpleDebugOverlay(
                                 Icons.Default.Info,
                                 contentDescription = null,
                                 tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(24.dp)
+                                modifier = Modifier.size(20.dp)
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
                                 "Debug Status",
-                                style = MaterialTheme.typography.headlineSmall,
+                                style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold,
+                                fontSize = 16.sp, // Smaller font size
                                 color = MaterialTheme.colorScheme.onSurface
                             )
                         }
-                        IconButton(onClick = onDismiss) {
+                        IconButton(
+                            onClick = onDismiss,
+                            modifier = Modifier.size(48.dp) // Keep larger size for usability
+                        ) {
                             Icon(
                                 Icons.Default.Close,
                                 contentDescription = "Close",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant, // Original theme color
+                                modifier = Modifier.size(24.dp) // Original size
                             )
                         }
                     }
@@ -125,114 +130,131 @@ fun SimpleDebugOverlay(
                                     
                                     Spacer(modifier = Modifier.height(12.dp))
                                     
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                        verticalAlignment = Alignment.CenterVertically
+                                    // Stack vertically on small screens
+                                    Column(
+                                        modifier = Modifier.fillMaxWidth()
                                     ) {
                                         OutlinedTextField(
                                             value = ipInputText,
                                             onValueChange = { ipInputText = it },
-                                            label = { Text("IP Address") },
-                                            modifier = Modifier.weight(1f),
+                                            label = { Text("Phone IP Address") },
+                                            modifier = Modifier.fillMaxWidth(),
                                             singleLine = true
                                         )
                                         
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        
                                         Button(
-                                            onClick = { onIpChanged(ipInputText) }
+                                            onClick = { onIpChanged(ipInputText) },
+                                            modifier = Modifier.fillMaxWidth()
                                         ) {
-                                            Text("Apply")
+                                            Text("Apply IP Address")
                                         }
                                     }
                                 }
                             }
                         }
 
-                        // System Status Cards with Better Styling
+                        // System Status List
                         item {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                SimpleStatusCard(
-                                    title = "Database",
-                                    isHealthy = status.database.isConnected,
-                                    details = "Records: ${status.database.lastReadCount}",
-                                    modifier = Modifier.weight(1f)
-                                )
-                                SimpleStatusCard(
-                                    title = "HTTP",
-                                    isHealthy = !status.http.isAttempting && status.http.lastErrorMessage.isNullOrEmpty(),
-                                    details = when {
-                                        status.http.isAttempting -> "Connecting..."
-                                        status.http.lastErrorMessage.isNullOrEmpty() -> "Connected"
-                                        else -> "Error"
-                                    },
-                                    modifier = Modifier.weight(1f)
-                                )
-                            }
+                            Text(
+                                "System Status",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                        
+                        // Database Status
+                        item {
+                            StatusListItem(
+                                title = "Database Connection",
+                                status = if (status.database.isConnected) "Connected" else "Disconnected",
+                                details = "Records: ${status.database.lastReadCount}",
+                                isHealthy = status.database.isConnected
+                            )
+                        }
+                        
+                        // HTTP Status
+                        item {
+                            StatusListItem(
+                                title = "HTTP Connection",
+                                status = when {
+                                    status.http.isAttempting -> "Connecting..."
+                                    status.http.lastErrorMessage.isNullOrEmpty() -> "Connected"
+                                    else -> "Error"
+                                },
+                                details = if (usingTestData) "Test Mode" else "Real xDrip",
+                                isHealthy = !status.http.isAttempting && status.http.lastErrorMessage.isNullOrEmpty()
+                            )
                         }
 
-                        // Network Status Section
+                        // Network Status
                         item {
                             val networkStatus = remember { networkDetector.getNetworkStatus() }
                             
+                            StatusListItem(
+                                title = "Network Connection",
+                                status = networkStatus.networkType.name.replace("_", " "),
+                                details = if (networkStatus.isBluetoothPanActive) 
+                                    "Bluetooth PAN Active\nIP: ${networkStatus.bluetoothPanIp ?: "Unknown"}" 
+                                else "Standard connection",
+                                isHealthy = networkStatus.networkType != com.example.karooglucometer.network.NetworkType.NONE
+                            )
+                        }
+
+                        // Test Data Status
+                        item {
+                            StatusListItem(
+                                title = "Test Data Mode",
+                                status = if (usingTestData) "Enabled" else "Real Mode",
+                                details = if (usingTestData) "Using mock glucose data" else "Fetching from xDrip",
+                                isHealthy = true
+                            )
+                        }
+                        
+                        // App Status  
+                        item {
+                            StatusListItem(
+                                title = "Application",
+                                status = if (status.app.debugMode) "Debug Mode" else "Release Mode",
+                                details = "Debug mode active",
+                                isHealthy = true
+                            )
+                        }
+
+                        // Karoo Status (simplified)
+                        item {
                             Card(
                                 modifier = Modifier.fillMaxWidth(),
                                 colors = CardDefaults.cardColors(
-                                    containerColor = Color(0xFFF5F5F5)
-                                ),
-                                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                                    containerColor = Color(0xFFF0F7FF)
+                                )
                             ) {
-                                Column(modifier = Modifier.padding(12.dp)) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(14.dp)
+                                ) {
                                     Text(
-                                        "Network Status",
+                                        "Karoo Integration",
                                         style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = FontWeight.Medium
+                                        fontWeight = FontWeight.Medium,
+                                        color = Color.Black
                                     )
                                     
                                     Spacer(modifier = Modifier.height(8.dp))
                                     
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                    ) {
-                                        SimpleStatusCard(
-                                            title = "Network Type",
-                                            isHealthy = networkStatus.networkType != com.example.karooglucometer.network.NetworkType.NONE,
-                                            details = networkStatus.networkType.name.replace("_", " "),
-                                            modifier = Modifier.weight(1f)
-                                        )
-                                        SimpleStatusCard(
-                                            title = "Bluetooth PAN",
-                                            isHealthy = networkStatus.isBluetoothPanActive,
-                                            details = if (networkStatus.isBluetoothPanActive) 
-                                                "Active: ${networkStatus.bluetoothPanIp ?: "Unknown IP"}" 
-                                            else "Inactive",
-                                            modifier = Modifier.weight(1f)
-                                        )
-                                    }
+                                    Text(
+                                        "Service: Active",
+                                        fontSize = 12.sp,
+                                        color = Color.Black.copy(alpha = 0.8f)
+                                    )
+                                    Text(
+                                        "Data fields: glucose_current, glucose_trend, glucose_time",
+                                        fontSize = 11.sp,
+                                        color = Color.Black.copy(alpha = 0.7f)
+                                    )
                                 }
-                            }
-                        }
-
-                        item {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                SimpleStatusCard(
-                                    title = "Test Data",
-                                    isHealthy = usingTestData,
-                                    details = if (usingTestData) "Enabled" else "Real Mode",
-                                    modifier = Modifier.weight(1f)
-                                )
-                                SimpleStatusCard(
-                                    title = "App",
-                                    isHealthy = true,
-                                    details = if (status.app.debugMode) "Debug" else "Release",
-                                    modifier = Modifier.weight(1f)
-                                )
                             }
                         }
 
@@ -263,36 +285,40 @@ fun SimpleStatusCard(
     modifier: Modifier = Modifier
 ) {
     Card(
-        modifier = modifier,
+        modifier = modifier.height(80.dp), // Fixed height for consistency
         colors = CardDefaults.cardColors(
-            containerColor = Color(0xFFF5F5F5)
-        )
+            containerColor = if (isHealthy) Color(0xFFE8F5E8) else Color(0xFFFFEBEE) // Color coding
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
     ) {
         Column(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(12.dp)
+                .fillMaxSize()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.SpaceEvenly
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
                     "●",
-                    color = if (isHealthy) Color(0xFF4CAF50) else Color(0xFFE57373),
-                    fontSize = 12.sp
+                    color = if (isHealthy) Color(0xFF2E7D32) else Color(0xFFD32F2F), // Higher contrast
+                    fontSize = 16.sp // Larger indicator
                 )
-                Spacer(modifier = Modifier.width(6.dp))
+                Spacer(modifier = Modifier.width(8.dp))
                 Text(
                     title,
                     style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Medium
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 14.sp, // Larger text for Karoo
+                    color = Color.Black // High contrast
                 )
             }
-            Spacer(modifier = Modifier.height(4.dp))
             Text(
                 details,
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                fontSize = 13.sp, // Readable size
+                color = Color.Black.copy(alpha = 0.8f) // High contrast
             )
         }
     }
@@ -313,6 +339,7 @@ fun SimpleLogItem(log: LogEntry) {
                 .fillMaxWidth()
                 .padding(12.dp)
         ) {
+            // Source and time on top row
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween
@@ -329,10 +356,70 @@ fun SimpleLogItem(log: LogEntry) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-            Spacer(modifier = Modifier.height(4.dp))
+            // Message on separate line with full width
+            Spacer(modifier = Modifier.height(6.dp))
             Text(
                 log.message,
-                style = MaterialTheme.typography.bodySmall
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.fillMaxWidth() // Allow full width for wrapping
+            )
+        }
+    }
+}
+
+@Composable
+fun StatusListItem(
+    title: String,
+    status: String,
+    details: String,
+    isHealthy: Boolean
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = Color(0xFFF5F5F5)
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+        ) {
+            // Title at the top
+            Text(
+                title,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Medium,
+                modifier = Modifier.fillMaxWidth()
+            )
+            
+            Spacer(modifier = Modifier.height(8.dp))
+            
+            // Status indicator below title
+            Row(
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    "●",
+                    color = if (isHealthy) Color(0xFF4CAF50) else Color(0xFFE57373),
+                    fontSize = 12.sp
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    status,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium
+                )
+            }
+            
+            // Details at the bottom with full width
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(
+                details,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.fillMaxWidth()
             )
         }
     }

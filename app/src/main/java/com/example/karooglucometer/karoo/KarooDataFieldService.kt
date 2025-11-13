@@ -35,59 +35,88 @@ class KarooDataFieldService : Service() {
     }
     
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        Log.d(TAG, "Karoo Data Field Service started")
+        Log.d(TAG, "Karoo Data Field Service started with intent: ${intent?.action}")
         
-        // Handle Karoo data field requests
-        intent?.let { handleKarooRequest(it) }
+        // Handle Karoo data field requests with error handling
+        intent?.let { 
+            try {
+                handleKarooRequest(it) 
+            } catch (e: Exception) {
+                Log.e(TAG, "Error handling Karoo request", e)
+            }
+        }
         
-        return START_STICKY // Keep service running
+        return START_STICKY // Keep service running for Karoo integration
     }
     
     /**
      * Register available data fields with Karoo system
      */
     private fun registerDataFields() {
-        try {
-            val registerIntent = Intent("io.hammerhead.karoo.REGISTER_DATA_FIELDS").apply {
-                putExtra("package_name", packageName)
-                putExtra("service_name", KarooDataFieldService::class.java.name)
-                
-                // Define available data fields
-                val dataFields = arrayOf(
-                    mapOf(
-                        "id" to "glucose_current",
-                        "name" to "Glucose",
-                        "description" to "Current blood glucose level",
-                        "unit" to "mg/dL",
-                        "format" to "number",
-                        "category" to "health"
-                    ),
-                    mapOf(
-                        "id" to "glucose_trend", 
-                        "name" to "Glucose Trend",
-                        "description" to "Blood glucose trend direction",
-                        "unit" to "arrow",
-                        "format" to "symbol",
-                        "category" to "health"
-                    ),
-                    mapOf(
-                        "id" to "glucose_time",
-                        "name" to "Glucose Time",
-                        "description" to "Time of last glucose reading",
-                        "unit" to "time",
-                        "format" to "time",
-                        "category" to "health"
+        var retryCount = 0
+        val maxRetries = 3
+        
+        while (retryCount < maxRetries) {
+            try {
+                val registerIntent = Intent("io.hammerhead.karoo.REGISTER_DATA_FIELDS").apply {
+                    putExtra("package_name", packageName)
+                    putExtra("service_name", KarooDataFieldService::class.java.name)
+                    
+                    // Define available data fields (ArrayList for proper serialization)
+                    val dataFields = arrayListOf(
+                        hashMapOf(
+                            "id" to "glucose_current",
+                            "name" to "Blood Glucose",
+                            "description" to "Current glucose reading",
+                            "unit" to "mg/dL",
+                            "format" to "decimal",
+                            "category" to "health",
+                            "precision" to "0"
+                        ),
+                        hashMapOf(
+                            "id" to "glucose_trend", 
+                            "name" to "Glucose Trend",
+                            "description" to "Glucose trend direction",
+                            "unit" to "",
+                            "format" to "string",
+                            "category" to "health",
+                            "precision" to "0"
+                        ),
+                        hashMapOf(
+                            "id" to "glucose_time",
+                            "name" to "Glucose Age",
+                            "description" to "Minutes since last reading",
+                            "unit" to "min",
+                            "format" to "decimal",
+                            "category" to "health",
+                            "precision" to "0"
+                        )
                     )
-                )
+                    
+                    putExtra("data_fields", dataFields)
+                    addFlags(Intent.FLAG_INCLUDE_STOPPED_PACKAGES)
+                }
                 
-                putExtra("data_fields", dataFields)
+                sendBroadcast(registerIntent)
+                Log.d(TAG, "Successfully registered data fields with Karoo (attempt ${retryCount + 1})")
+                return // Success, exit retry loop
+                
+            } catch (e: Exception) {
+                retryCount++
+                Log.w(TAG, "Failed to register data fields (attempt $retryCount): ${e.message}")
+                
+                if (retryCount >= maxRetries) {
+                    Log.e(TAG, "Failed to register data fields after $maxRetries attempts", e)
+                } else {
+                    // Wait before retry
+                    try {
+                        Thread.sleep(1000L * retryCount) // Exponential backoff
+                    } catch (ie: InterruptedException) {
+                        Thread.currentThread().interrupt()
+                        return
+                    }
+                }
             }
-            
-            sendBroadcast(registerIntent)
-            Log.d(TAG, "Registered data fields with Karoo")
-            
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to register data fields with Karoo", e)
         }
     }
     
@@ -128,52 +157,57 @@ class KarooDataFieldService : Service() {
             "glucose_current" -> {
                 if (reading != null) {
                     val age = (System.currentTimeMillis() - reading.timestamp) / 60000
-                    if (age < 15) { // Data is fresh (less than 15 minutes old)
+                    if (age < 20) { // Extended freshness for cycling
                         reading.glucoseValue.toString()
                     } else {
-                        "OLD" // Indicate stale data
+                        "0" // Return 0 for stale data (Karoo expects numeric)
                     }
                 } else {
-                    "---" // No data available
+                    "0" // No data - return 0
                 }
             }
             
             "glucose_trend" -> {
-                calculateTrendArrow()
+                calculateTrendIndicator()
             }
             
             "glucose_time" -> {
                 if (reading != null) {
-                    val formatter = SimpleDateFormat("HH:mm", Locale.getDefault())
-                    formatter.format(Date(reading.timestamp))
+                    val age = (System.currentTimeMillis() - reading.timestamp) / 60000
+                    age.toString() // Return age in minutes
                 } else {
-                    "--:--"
+                    "999" // Large number indicates no data
                 }
             }
             
-            else -> "N/A"
+            else -> "0"
         }
     }
     
     /**
-     * Calculate trend arrow based on recent glucose readings
+     * Calculate trend indicator based on recent glucose readings
+     * Returns simple text indicators that work well on Karoo displays
      */
-    private fun calculateTrendArrow(): String {
-        if (glucoseHistory.size < 2) return "→"
+    private fun calculateTrendIndicator(): String {
+        if (glucoseHistory.size < 2) return "STABLE"
         
-        val recent = glucoseHistory.take(3) // Last 3 readings
-        if (recent.size < 2) return "→"
+        val recent = glucoseHistory.take(5).sortedByDescending { it.timestamp }
+        if (recent.size < 2) return "STABLE"
         
-        val latest = recent[0].glucoseValue
-        val previous = recent[1].glucoseValue
-        val trend = latest - previous
+        // Calculate average trend over multiple points for stability
+        val trends = mutableListOf<Int>()
+        for (i in 0 until (recent.size - 1).coerceAtMost(3)) {
+            trends.add(recent[i].glucoseValue - recent[i + 1].glucoseValue)
+        }
+        
+        val avgTrend = trends.average()
         
         return when {
-            trend > 5 -> "↗↗"  // Rapidly rising
-            trend > 2 -> "↗"   // Rising
-            trend < -5 -> "↘↘" // Rapidly falling  
-            trend < -2 -> "↘"  // Falling
-            else -> "→"        // Stable
+            avgTrend > 8 -> "RISING FAST"  
+            avgTrend > 3 -> "RISING"       
+            avgTrend < -8 -> "FALLING FAST" 
+            avgTrend < -3 -> "FALLING"     
+            else -> "STABLE"               
         }
     }
     
@@ -213,18 +247,29 @@ class KarooDataFieldService : Service() {
      * Update glucose data (called from main app)
      */
     fun updateGlucoseReading(reading: GlucoseReading) {
-        latestGlucoseReading = reading
-        
-        // Add to history (keep last 10 readings for trend calculation)
-        glucoseHistory.add(0, reading)
-        if (glucoseHistory.size > 10) {
-            glucoseHistory = glucoseHistory.take(10).toMutableList()
+        try {
+            // Validate glucose reading
+            if (reading.glucoseValue < 0 || reading.glucoseValue > 999) {
+                Log.w(TAG, "Invalid glucose value: ${reading.glucoseValue}")
+                return
+            }
+            
+            latestGlucoseReading = reading
+            
+            // Add to history (keep last 10 readings for trend calculation)
+            glucoseHistory.add(0, reading)
+            if (glucoseHistory.size > 10) {
+                glucoseHistory = glucoseHistory.take(10).toMutableList()
+            }
+            
+            Log.d(TAG, "Updated glucose reading: ${reading.glucoseValue} mg/dL at ${reading.timestamp}")
+            
+            // Notify Karoo of data update
+            notifyDataUpdate()
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Error updating glucose reading", e)
         }
-        
-        Log.d(TAG, "Updated glucose reading: ${reading.glucoseValue} mg/dL")
-        
-        // Notify Karoo of data update
-        notifyDataUpdate()
     }
     
     /**
@@ -235,9 +280,11 @@ class KarooDataFieldService : Service() {
             val updateIntent = Intent("io.hammerhead.karoo.DATA_FIELD_UPDATE").apply {
                 putExtra("package_name", packageName)
                 putExtra("timestamp", System.currentTimeMillis())
+                addFlags(Intent.FLAG_INCLUDE_STOPPED_PACKAGES)
             }
             
             sendBroadcast(updateIntent)
+            Log.v(TAG, "Notified Karoo of data update") // Verbose logging to reduce spam
             
         } catch (e: Exception) {
             Log.e(TAG, "Failed to notify Karoo of data update", e)

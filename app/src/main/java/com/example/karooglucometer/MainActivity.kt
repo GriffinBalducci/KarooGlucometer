@@ -298,16 +298,17 @@ class MainActivity : ComponentActivity() {
                 .fillMaxSize()
                 .padding(16.dp)
         ) {
-            // Top glucose summary card
+            // Top glucose summary card (Karoo optimized)
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clickable(onClick = onGlucoseClick),
-                shape = RoundedCornerShape(12.dp),
+                    .clickable(onClick = onGlucoseClick)
+                    .height(150.dp), // Karoo: Consistent height
+                shape = RoundedCornerShape(8.dp), // Karoo: Less rounded
                 colors = CardDefaults.cardColors(
-                    containerColor = Color(0xFFF5F5F5)
+                    containerColor = Color(0xFFF5F5F5) // Original light gray
                 ),
-                elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+                elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
             ) {
                 Column(
                     modifier = Modifier
@@ -322,9 +323,9 @@ class MainActivity : ComponentActivity() {
                         ) {
                             Text(
                                 text = "${latest.glucoseValue}",
-                                fontSize = 72.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                                fontSize = 76.sp, // Karoo: Large but not excessive
+                                fontWeight = FontWeight.ExtraBold, // Karoo: Heavy for outdoor visibility
+                                color = MaterialTheme.colorScheme.onPrimaryContainer // Original theme color
                             )
                             Spacer(modifier = Modifier.width(16.dp))
                             Icon(
@@ -371,12 +372,12 @@ class MainActivity : ComponentActivity() {
                     Card(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(300.dp),
-                        shape = RoundedCornerShape(12.dp),
+                            .height(290.dp), // Karoo: Slightly smaller
+                        shape = RoundedCornerShape(8.dp),
                         colors = CardDefaults.cardColors(
-                            containerColor = Color(0xFFF5F5F5)
+                            containerColor = Color(0xFFF5F5F5) // Original light gray
                         ),
-                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
                     ) {
                         Column(
                             modifier = Modifier
