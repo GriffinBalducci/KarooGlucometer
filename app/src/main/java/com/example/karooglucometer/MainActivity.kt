@@ -88,7 +88,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var networkDetector: NetworkDetector
     private lateinit var connectionTester: ConnectionTester
     private var karooDataFieldService: KarooDataFieldService? = null
-    private var phoneIp by mutableStateOf("10.0.2.2") // Special IP for emulator to access host machine (use real phone IP like "192.168.1.100" for actual device)
+    private var phoneIp by mutableStateOf("192.168.44.1") // Common Bluetooth PAN IP (change if your phone uses different IP)
 
     // Set to true for testing with mock data, false to force real xDrip fetching
     private val useTestData = false // Changed to false to enable real connections
@@ -123,8 +123,8 @@ class MainActivity : ComponentActivity() {
         // Initialize app status monitoring
         monitor.updateAppStatus(debugMode, System.currentTimeMillis() - appStartTime)
 
-        // Start Karoo Data Field Service for ride profile integration
-        startKarooDataFieldService()
+        // Start Legacy Karoo Data Field Service for older firmware
+        startLegacyKarooDataFieldService()
 
         // In debug mode with test data enabled, populate with test data for easy testing
         if (debugMode && useTestData) {
@@ -136,6 +136,8 @@ class MainActivity : ComponentActivity() {
             KarooGlucometerTheme {
                 var showDebugOverlay by remember { mutableStateOf(false) }
                 var showFullscreenGlucose by remember { mutableStateOf(false) }
+                var karooServiceStatus by remember { mutableStateOf<Map<String, Any>>(emptyMap()) }
+                var lastKarooTestTime by remember { mutableStateOf(0L) }
 
                 Box(modifier = Modifier.fillMaxSize()) {
                     // Render main surface container
@@ -175,7 +177,18 @@ class MainActivity : ComponentActivity() {
                             usingTestData = useTestData,
                             networkDetector = networkDetector,
                             currentPhoneIp = phoneIp,
-                            onIpChanged = { newIp -> phoneIp = newIp }
+                            onIpChanged = { newIp -> phoneIp = newIp },
+                            karooServiceStatus = karooServiceStatus,
+                            onKarooTest = {
+                                karooDataFieldService?.enableTestMode()
+                                karooServiceStatus = karooDataFieldService?.getServiceStatus() ?: emptyMap()
+                                lastKarooTestTime = System.currentTimeMillis()
+                            },
+                            onKarooTestBroadcast = {
+                                karooDataFieldService?.triggerTestBroadcast()
+                                karooServiceStatus = karooDataFieldService?.getServiceStatus() ?: emptyMap()
+                                lastKarooTestTime = System.currentTimeMillis()
+                            }
                         )
                     }
                 }
@@ -238,17 +251,21 @@ class MainActivity : ComponentActivity() {
 
                                 Log.d("MainActivity", "Connection test passed, fetching glucose data...")
                                 // Connection test passed, now fetch glucose data
-                                fetcher.fetchAndSave(phoneIp)
+                                val hasNewData = fetcher.fetchAndSave(phoneIp)
 
                                 // Update HTTP status - success
                                 monitor.updateHttpStatus(false, System.currentTimeMillis(), null)
-                                Log.d("MainActivity", "Glucose fetch successful")
                                 
-                                // Update Karoo Data Field Service with new glucose reading
-                                val latestReading = dao.getRecent().firstOrNull()
-                                if (latestReading != null) {
-                                    Log.d("MainActivity", "Publishing to Karoo: ${latestReading.glucoseValue} mg/dL")
-                                    karooDataFieldService?.updateGlucoseReading(latestReading)
+                                if (hasNewData) {
+                                    Log.d("MainActivity", "NEW glucose data received - updating legacy Karoo")
+                                    // Update Legacy Karoo Data Field Service with new glucose reading
+                                    val latestReading = dao.getRecent().firstOrNull()
+                                    if (latestReading != null) {
+                                        Log.d("MainActivity", "Publishing to legacy Karoo: ${latestReading.glucoseValue} mg/dL")
+                                        karooDataFieldService?.updateGlucoseReading(latestReading)
+                                    }
+                                } else {
+                                    Log.d("MainActivity", "No new glucose data - legacy Karoo update skipped (5-min optimization)")
                                 }
                             } catch (e: Exception) {
                                 // Update HTTP status - error with detailed message
@@ -786,29 +803,29 @@ class MainActivity : ComponentActivity() {
     }
     
     /**
-     * Start Karoo Data Field Service for ride profile integration
+     * Start Legacy Karoo Data Field Service for older firmware compatibility
      */
-    private fun startKarooDataFieldService() {
+    private fun startLegacyKarooDataFieldService() {
         try {
             val serviceIntent = Intent(this, KarooDataFieldService::class.java)
-            val connection = object : android.content.ServiceConnection {
-                override fun onServiceConnected(name: android.content.ComponentName?, service: android.os.IBinder?) {
+            val connection = object : ServiceConnection {
+                override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
                     val binder = service as KarooDataFieldService.LocalBinder
                     karooDataFieldService = binder.getService()
-                    Log.d("MainActivity", "Connected to Karoo Data Field Service")
+                    Log.d("MainActivity", "Connected to Legacy Karoo Data Field Service")
                 }
                 
-                override fun onServiceDisconnected(name: android.content.ComponentName?) {
+                override fun onServiceDisconnected(name: ComponentName?) {
                     karooDataFieldService = null
-                    Log.d("MainActivity", "Disconnected from Karoo Data Field Service")
+                    Log.d("MainActivity", "Disconnected from Legacy Karoo Data Field Service")
                 }
             }
             
             bindService(serviceIntent, connection, BIND_AUTO_CREATE)
-            startService(serviceIntent) // Also start as a regular service
+            startService(serviceIntent)
             
         } catch (e: Exception) {
-            Log.e("MainActivity", "Failed to start Karoo Data Field Service", e)
+            Log.e("MainActivity", "Failed to start Legacy Karoo Data Field Service", e)
         }
     }
 

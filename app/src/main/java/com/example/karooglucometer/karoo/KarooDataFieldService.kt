@@ -10,289 +10,362 @@ import java.text.SimpleDateFormat
 import java.util.*
 
 /**
- * Karoo Data Field Service - Provides glucose data fields to Karoo ride computer
- * This service registers with Karoo and provides real-time glucose monitoring data fields
+ * Legacy Karoo Data Field Service for older Karoo firmware
+ * Provides glucose data fields compatible with older Karoo software versions
  */
 class KarooDataFieldService : Service() {
     private val TAG = "KarooDataFieldService"
     private val binder = LocalBinder()
     private var latestGlucoseReading: GlucoseReading? = null
     private var glucoseHistory: MutableList<GlucoseReading> = mutableListOf()
+    private var lastBroadcastTime: Long = 0
+    private var broadcastCount: Long = 0
+    private var testModeEnabled = false
     
     inner class LocalBinder : Binder() {
         fun getService(): KarooDataFieldService = this@KarooDataFieldService
     }
     
     override fun onBind(intent: Intent): IBinder {
-        Log.d(TAG, "Karoo Data Field Service bound")
+        Log.d(TAG, "Legacy Karoo Data Field Service bound")
         return binder
     }
     
     override fun onCreate() {
         super.onCreate()
-        Log.d(TAG, "Karoo Data Field Service created")
-        registerDataFields()
+        Log.d(TAG, "=== LEGACY KAROO SERVICE STARTING ===")
+        Log.d(TAG, "Service created at: ${System.currentTimeMillis()}")
+        Log.d(TAG, "Package name: ${packageName}")
+        Log.d(TAG, "Service class: ${this.javaClass.name}")
+        
+        // Test broadcast capability immediately
+        testBroadcastCapability()
+        
+        Log.d(TAG, "=== LEGACY KAROO SERVICE READY ===")
     }
     
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        Log.d(TAG, "Karoo Data Field Service started with intent: ${intent?.action}")
+        Log.d(TAG, "Legacy Karoo Data Field Service started")
         
-        // Handle Karoo data field requests with error handling
+        // Handle legacy Karoo requests
         intent?.let { 
             try {
-                handleKarooRequest(it) 
+                handleLegacyKarooRequest(it) 
             } catch (e: Exception) {
-                Log.e(TAG, "Error handling Karoo request", e)
+                Log.e(TAG, "Error handling legacy Karoo request", e)
             }
         }
         
-        return START_STICKY // Keep service running for Karoo integration
+        return START_STICKY
     }
     
     /**
-     * Register available data fields with Karoo system
+     * Handle legacy Karoo data field requests with comprehensive logging
      */
-    private fun registerDataFields() {
-        var retryCount = 0
-        val maxRetries = 3
-        
-        while (retryCount < maxRetries) {
-            try {
-                val registerIntent = Intent("io.hammerhead.karoo.REGISTER_DATA_FIELDS").apply {
-                    putExtra("package_name", packageName)
-                    putExtra("service_name", KarooDataFieldService::class.java.name)
-                    
-                    // Define available data fields (ArrayList for proper serialization)
-                    val dataFields = arrayListOf(
-                        hashMapOf(
-                            "id" to "glucose_current",
-                            "name" to "Blood Glucose",
-                            "description" to "Current glucose reading",
-                            "unit" to "mg/dL",
-                            "format" to "decimal",
-                            "category" to "health",
-                            "precision" to "0"
-                        ),
-                        hashMapOf(
-                            "id" to "glucose_trend", 
-                            "name" to "Glucose Trend",
-                            "description" to "Glucose trend direction",
-                            "unit" to "",
-                            "format" to "string",
-                            "category" to "health",
-                            "precision" to "0"
-                        ),
-                        hashMapOf(
-                            "id" to "glucose_time",
-                            "name" to "Glucose Age",
-                            "description" to "Minutes since last reading",
-                            "unit" to "min",
-                            "format" to "decimal",
-                            "category" to "health",
-                            "precision" to "0"
-                        )
-                    )
-                    
-                    putExtra("data_fields", dataFields)
-                    addFlags(Intent.FLAG_INCLUDE_STOPPED_PACKAGES)
-                }
-                
-                sendBroadcast(registerIntent)
-                Log.d(TAG, "Successfully registered data fields with Karoo (attempt ${retryCount + 1})")
-                return // Success, exit retry loop
-                
-            } catch (e: Exception) {
-                retryCount++
-                Log.w(TAG, "Failed to register data fields (attempt $retryCount): ${e.message}")
-                
-                if (retryCount >= maxRetries) {
-                    Log.e(TAG, "Failed to register data fields after $maxRetries attempts", e)
-                } else {
-                    // Wait before retry
-                    try {
-                        Thread.sleep(1000L * retryCount) // Exponential backoff
-                    } catch (ie: InterruptedException) {
-                        Thread.currentThread().interrupt()
-                        return
-                    }
-                }
-            }
-        }
-    }
-    
-    /**
-     * Handle data field requests from Karoo
-     */
-    private fun handleKarooRequest(intent: Intent) {
+    private fun handleLegacyKarooRequest(intent: Intent) {
         val action = intent.action
-        val fieldId = intent.getStringExtra("field_id")
+        val extras = intent.extras
         
-        Log.d(TAG, "Karoo request - Action: $action, Field ID: $fieldId")
+        Log.d(TAG, "=== LEGACY KAROO REQUEST ===")
+        Log.d(TAG, "Action: $action")
+        Log.d(TAG, "Extras count: ${extras?.size() ?: 0}")
+        
+        extras?.keySet()?.forEach { key ->
+            Log.d(TAG, "Extra: $key = ${extras.get(key)}")
+        }
         
         when (action) {
-            "io.hammerhead.karoo.GET_DATA_FIELD_VALUE" -> {
-                fieldId?.let { id ->
-                    val value = getDataFieldValue(id)
-                    sendDataFieldResponse(id, value)
-                }
+            "com.hammerhead.karoo.DATA_FIELD_REQUEST" -> {
+                Log.d(TAG, "📡 Processing data field request")
+                sendLegacyDataFieldResponse()
             }
-            "io.hammerhead.karoo.DATA_FIELD_ACTIVATED" -> {
-                Log.d(TAG, "Data field activated: $fieldId")
-                // Start more frequent updates when field is active
+            "com.hammerhead.karoo.GET_DATA_FIELDS" -> {
+                Log.d(TAG, "📋 Processing get data fields request")
+                sendAvailableDataFields()
             }
-            "io.hammerhead.karoo.DATA_FIELD_DEACTIVATED" -> {
-                Log.d(TAG, "Data field deactivated: $fieldId")
-                // Reduce update frequency when field is not displayed
+            else -> {
+                Log.w(TAG, "⚠️ Unknown legacy Karoo action: $action")
             }
         }
+        
+        Log.d(TAG, "=== REQUEST PROCESSED ===")
     }
     
     /**
-     * Get current value for a specific data field
+     * Send available data fields to legacy Karoo with validation
      */
-    private fun getDataFieldValue(fieldId: String): String {
-        val reading = latestGlucoseReading
-        
-        return when (fieldId) {
-            "glucose_current" -> {
-                if (reading != null) {
-                    val age = (System.currentTimeMillis() - reading.timestamp) / 60000
-                    if (age < 20) { // Extended freshness for cycling
-                        reading.glucoseValue.toString()
-                    } else {
-                        "0" // Return 0 for stale data (Karoo expects numeric)
-                    }
-                } else {
-                    "0" // No data - return 0
-                }
-            }
-            
-            "glucose_trend" -> {
-                calculateTrendIndicator()
-            }
-            
-            "glucose_time" -> {
-                if (reading != null) {
-                    val age = (System.currentTimeMillis() - reading.timestamp) / 60000
-                    age.toString() // Return age in minutes
-                } else {
-                    "999" // Large number indicates no data
-                }
-            }
-            
-            else -> "0"
-        }
-    }
-    
-    /**
-     * Calculate trend indicator based on recent glucose readings
-     * Returns simple text indicators that work well on Karoo displays
-     */
-    private fun calculateTrendIndicator(): String {
-        if (glucoseHistory.size < 2) return "STABLE"
-        
-        val recent = glucoseHistory.take(5).sortedByDescending { it.timestamp }
-        if (recent.size < 2) return "STABLE"
-        
-        // Calculate average trend over multiple points for stability
-        val trends = mutableListOf<Int>()
-        for (i in 0 until (recent.size - 1).coerceAtMost(3)) {
-            trends.add(recent[i].glucoseValue - recent[i + 1].glucoseValue)
-        }
-        
-        val avgTrend = trends.average()
-        
-        return when {
-            avgTrend > 8 -> "RISING FAST"  
-            avgTrend > 3 -> "RISING"       
-            avgTrend < -8 -> "FALLING FAST" 
-            avgTrend < -3 -> "FALLING"     
-            else -> "STABLE"               
-        }
-    }
-    
-    /**
-     * Send data field value response back to Karoo
-     */
-    private fun sendDataFieldResponse(fieldId: String, value: String) {
+    private fun sendAvailableDataFields() {
         try {
-            val responseIntent = Intent("io.hammerhead.karoo.DATA_FIELD_RESPONSE").apply {
-                putExtra("field_id", fieldId)
-                putExtra("field_value", value)
-                putExtra("timestamp", System.currentTimeMillis())
-                
-                // Add metadata for enhanced display
-                latestGlucoseReading?.let { reading ->
-                    val age = (System.currentTimeMillis() - reading.timestamp) / 60000
-                    putExtra("data_age_minutes", age)
-                    
-                    // Alert levels for color coding
-                    when {
-                        reading.glucoseValue < 70 -> putExtra("alert_level", "critical")
-                        reading.glucoseValue > 180 -> putExtra("alert_level", "warning")
-                        else -> putExtra("alert_level", "normal")
-                    }
-                }
+            Log.d(TAG, "📋 Preparing data fields response...")
+            
+            val responseIntent = Intent("com.hammerhead.karoo.DATA_FIELDS_RESPONSE").apply {
+                // Simple data fields compatible with legacy Karoo
+                putExtra("field_count", 3)
+                putExtra("field_1_id", "glucose")
+                putExtra("field_1_name", "Glucose")
+                putExtra("field_1_unit", "mg/dL")
+                putExtra("field_1_type", "numeric")
+                putExtra("field_2_id", "glucose_trend")
+                putExtra("field_2_name", "Trend")
+                putExtra("field_2_unit", "")
+                putExtra("field_2_type", "text")
+                putExtra("field_3_id", "glucose_age")
+                putExtra("field_3_name", "Age")
+                putExtra("field_3_unit", "min")
+                putExtra("field_3_type", "numeric")
+                putExtra("package_name", packageName)
+                putExtra("service_version", "1.0")
+                putExtra("response_timestamp", System.currentTimeMillis())
             }
             
             sendBroadcast(responseIntent)
-            Log.d(TAG, "Sent data field response: $fieldId = $value")
+            broadcastCount++
+            lastBroadcastTime = System.currentTimeMillis()
+            
+            Log.d(TAG, "✅ Data fields response sent (broadcast #$broadcastCount)")
+            Log.d(TAG, "Response action: com.hammerhead.karoo.DATA_FIELDS_RESPONSE")
             
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to send data field response", e)
+            Log.e(TAG, "❌ Failed to send data fields response", e)
         }
     }
     
     /**
-     * Update glucose data (called from main app)
+     * Send current glucose data to legacy Karoo with comprehensive validation
+     */
+    private fun sendLegacyDataFieldResponse() {
+        try {
+            Log.d(TAG, "📡 Preparing glucose data response...")
+            
+            val reading = if (testModeEnabled) {
+                // Use test data if in test mode
+                GlucoseReading(
+                    timestamp = System.currentTimeMillis(),
+                    glucoseValue = 120 + (broadcastCount % 20).toInt() // Varying test values
+                )
+            } else {
+                latestGlucoseReading
+            }
+            
+            val responseIntent = Intent("com.hammerhead.karoo.DATA_FIELD_VALUES").apply {
+                if (reading != null) {
+                    val ageMinutes = (System.currentTimeMillis() - reading.timestamp) / 60000
+                    val trend = calculateSimpleTrend()
+                    
+                    Log.d(TAG, "Glucose data: ${reading.glucoseValue} mg/dL, Age: ${ageMinutes}m, Trend: $trend")
+                    
+                    if (ageMinutes < 30 || testModeEnabled) { // Fresh data or test mode
+                        putExtra("glucose", reading.glucoseValue.toString())
+                        putExtra("glucose_trend", trend)
+                        putExtra("glucose_age", ageMinutes.toString())
+                        
+                        // Legacy alert levels
+                        val alertLevel = when {
+                            reading.glucoseValue < 70 -> "low"
+                            reading.glucoseValue > 180 -> "high"
+                            else -> "normal"
+                        }
+                        putExtra("alert_level", alertLevel)
+                        
+                        Log.d(TAG, "✅ Fresh glucose data prepared: ${reading.glucoseValue} mg/dL ($alertLevel)")
+                        
+                    } else {
+                        // Stale data
+                        putExtra("glucose", "---")
+                        putExtra("glucose_trend", "")
+                        putExtra("glucose_age", "old")
+                        putExtra("alert_level", "stale")
+                        
+                        Log.w(TAG, "⚠️ Stale glucose data (age: ${ageMinutes}m)")
+                    }
+                } else {
+                    // No data
+                    putExtra("glucose", "---")
+                    putExtra("glucose_trend", "")
+                    putExtra("glucose_age", "none")
+                    putExtra("alert_level", "no_data")
+                    
+                    Log.w(TAG, "⚠️ No glucose data available")
+                }
+                
+                putExtra("timestamp", System.currentTimeMillis())
+                putExtra("package_name", packageName)
+                putExtra("broadcast_count", broadcastCount)
+                putExtra("test_mode", testModeEnabled)
+            }
+            
+            sendBroadcast(responseIntent)
+            broadcastCount++
+            lastBroadcastTime = System.currentTimeMillis()
+            
+            Log.d(TAG, "✅ Glucose data response sent (broadcast #$broadcastCount)")
+            Log.d(TAG, "Response action: com.hammerhead.karoo.DATA_FIELD_VALUES")
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Failed to send glucose data response", e)
+        }
+    }
+    
+    /**
+     * Calculate simple trend for legacy Karoo compatibility
+     */
+    private fun calculateSimpleTrend(): String {
+        if (glucoseHistory.size < 2) return "→"
+        
+        val recent = glucoseHistory.take(3).sortedByDescending { it.timestamp }
+        if (recent.size < 2) return "→"
+        
+        val diff = recent[0].glucoseValue - recent[1].glucoseValue
+        
+        return when {
+            diff > 10 -> "↑↑"
+            diff > 5 -> "↑"
+            diff < -10 -> "↓↓" 
+            diff < -5 -> "↓"
+            else -> "→"
+        }
+    }
+    
+    /**
+     * Update glucose data with comprehensive validation and testing
      */
     fun updateGlucoseReading(reading: GlucoseReading) {
         try {
+            Log.d(TAG, "=== GLUCOSE UPDATE ===")
+            Log.d(TAG, "New reading: ${reading.glucoseValue} mg/dL at ${reading.timestamp}")
+            Log.d(TAG, "Test mode: $testModeEnabled")
+            
             // Validate glucose reading
             if (reading.glucoseValue < 0 || reading.glucoseValue > 999) {
-                Log.w(TAG, "Invalid glucose value: ${reading.glucoseValue}")
+                Log.w(TAG, "⚠️ Invalid glucose value: ${reading.glucoseValue}")
                 return
             }
             
+            val previousReading = latestGlucoseReading
             latestGlucoseReading = reading
             
-            // Add to history (keep last 10 readings for trend calculation)
+            // Add to history (keep last 5 readings)
             glucoseHistory.add(0, reading)
-            if (glucoseHistory.size > 10) {
-                glucoseHistory = glucoseHistory.take(10).toMutableList()
+            if (glucoseHistory.size > 5) {
+                glucoseHistory = glucoseHistory.take(5).toMutableList()
             }
             
-            Log.d(TAG, "Updated glucose reading: ${reading.glucoseValue} mg/dL at ${reading.timestamp}")
+            // Log trend change
+            if (previousReading != null) {
+                val change = reading.glucoseValue - previousReading.glucoseValue
+                Log.d(TAG, "Change: ${if (change >= 0) "+" else ""}$change mg/dL")
+            }
             
-            // Notify Karoo of data update
-            notifyDataUpdate()
+            Log.d(TAG, "History size: ${glucoseHistory.size} readings")
+            Log.d(TAG, "✅ Glucose reading updated successfully")
+            
+            // Notify legacy Karoo of update
+            notifyLegacyKarooUpdate()
             
         } catch (e: Exception) {
-            Log.e(TAG, "Error updating glucose reading", e)
+            Log.e(TAG, "❌ Error updating glucose reading", e)
         }
     }
     
     /**
-     * Notify Karoo that data has been updated
+     * Notify legacy Karoo that data has been updated with validation
      */
-    private fun notifyDataUpdate() {
+    private fun notifyLegacyKarooUpdate() {
         try {
-            val updateIntent = Intent("io.hammerhead.karoo.DATA_FIELD_UPDATE").apply {
+            Log.d(TAG, "📢 Notifying legacy Karoo of data update...")
+            
+            val updateIntent = Intent("com.hammerhead.karoo.DATA_UPDATE").apply {
                 putExtra("package_name", packageName)
+                putExtra("has_new_data", true)
                 putExtra("timestamp", System.currentTimeMillis())
-                addFlags(Intent.FLAG_INCLUDE_STOPPED_PACKAGES)
+                putExtra("broadcast_count", broadcastCount)
+                putExtra("data_fields_available", 3)
             }
             
             sendBroadcast(updateIntent)
-            Log.v(TAG, "Notified Karoo of data update") // Verbose logging to reduce spam
+            broadcastCount++
+            
+            Log.d(TAG, "✅ Legacy Karoo update notification sent (broadcast #$broadcastCount)")
             
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to notify Karoo of data update", e)
+            Log.e(TAG, "❌ Failed to notify legacy Karoo of update", e)
         }
     }
     
     override fun onDestroy() {
         super.onDestroy()
-        Log.d(TAG, "Karoo Data Field Service destroyed")
+        Log.d(TAG, "Legacy Karoo Data Field Service destroyed")
+    }
+    
+    /**
+     * Test broadcast capability and permissions
+     */
+    private fun testBroadcastCapability() {
+        try {
+            Log.d(TAG, "Testing broadcast capability...")
+            
+            val testIntent = Intent("com.hammerhead.karoo.TEST_BROADCAST").apply {
+                putExtra("test_message", "Karoo service is working")
+                putExtra("timestamp", System.currentTimeMillis())
+                putExtra("package_name", packageName)
+            }
+            
+            sendBroadcast(testIntent)
+            Log.d(TAG, "✅ Test broadcast sent successfully")
+            
+            // Also test with sticky broadcast
+            try {
+                @Suppress("DEPRECATION")
+                sendStickyBroadcast(testIntent)
+                Log.d(TAG, "✅ Sticky broadcast capability confirmed")
+            } catch (e: SecurityException) {
+                Log.w(TAG, "⚠️ Sticky broadcast permission missing: ${e.message}")
+            }
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Broadcast test failed", e)
+        }
+    }
+    
+    /**
+     * Enable test mode with mock data
+     */
+    fun enableTestMode() {
+        testModeEnabled = true
+        Log.d(TAG, "Test mode enabled - will use mock glucose data")
+        
+        // Create test glucose reading
+        val testReading = GlucoseReading(
+            timestamp = System.currentTimeMillis(),
+            glucoseValue = 120 // Normal test value
+        )
+        
+        updateGlucoseReading(testReading)
+    }
+    
+    /**
+     * Get comprehensive service status for debugging
+     */
+    fun getServiceStatus(): Map<String, Any> {
+        return mapOf(
+            "service_active" to true,
+            "latest_reading" to (latestGlucoseReading?.glucoseValue ?: "none"),
+            "reading_timestamp" to (latestGlucoseReading?.timestamp ?: 0),
+            "history_size" to glucoseHistory.size,
+            "broadcast_count" to broadcastCount,
+            "last_broadcast" to lastBroadcastTime,
+            "test_mode" to testModeEnabled,
+            "package_name" to packageName
+        )
+    }
+    
+    /**
+     * Force a test broadcast for validation
+     */
+    fun triggerTestBroadcast() {
+        Log.d(TAG, "🧪 Triggering test broadcast...")
+        enableTestMode()
+        sendLegacyDataFieldResponse()
+        sendAvailableDataFields()
     }
 }

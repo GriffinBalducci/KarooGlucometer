@@ -7,4 +7,18 @@
     <color name="teal_700">#FF018786</color>
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
+    
+    <!-- Glucose colors -->
+    <color name="glucose_low">#FFD32F2F</color>
+    <color name="glucose_normal">#FF4CAF50</color>
+    <color name="glucose_high">#FFFF9800</color>
+    
+    <!-- Background colors for widget -->
+    <color name="glucose_low_bg">#33D32F2F</color>
+    <color name="glucose_normal_bg">#334CAF50</color>
+    <color name="glucose_high_bg">#33FF9800</color>
+    
+    <!-- Text colors -->
+    <color name="text_primary">#FFFFFFFF</color>
+    <color name="text_secondary">#CCFFFFFF</color>
 </resources>

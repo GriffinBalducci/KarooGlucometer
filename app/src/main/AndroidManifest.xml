@@ -7,9 +7,9 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     
-    <!-- Karoo data field permissions -->
-    <uses-permission android:name="io.hammerhead.karoo.permission.DATA_FIELD" />
-    <uses-permission android:name="io.hammerhead.karoo.permission.METRIC_ACCESS" />
+    <!-- Legacy Karoo data field permissions (older firmware) -->
+    <uses-permission android:name="com.hammerhead.karoo.permission.DATA_FIELD" />
+    <uses-permission android:name="android.permission.BROADCAST_STICKY" />
 
     <application
         android:allowBackup="true"
@@ -28,29 +28,39 @@
             android:theme="@style/Theme.KarooGlucometer">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
-
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
         
-        <!-- Karoo Data Field Service -->
+        <!-- Legacy Karoo Data Field Service (for older Karoo firmware) -->
         <service
             android:name=".karoo.KarooDataFieldService"
             android:enabled="true"
             android:exported="true">
             <intent-filter>
-                <action android:name="io.hammerhead.karoo.DATA_FIELD_SERVICE" />
+                <action android:name="com.hammerhead.karoo.DATA_FIELD_SERVICE" />
+                <action android:name="com.hammerhead.karoo.DATA_FIELD_REQUEST" />
+                <action android:name="com.hammerhead.karoo.GET_DATA_FIELDS" />
             </intent-filter>
             <meta-data
-                android:name="io.hammerhead.karoo.data_field_name"
+                android:name="karoo_data_field_provider"
+                android:value="true" />
+            <meta-data
+                android:name="karoo_data_field_name"
                 android:value="Glucose Monitor" />
-            <meta-data
-                android:name="io.hammerhead.karoo.data_field_description"
-                android:value="Real-time blood glucose monitoring from xDrip+" />
-            <meta-data
-                android:name="io.hammerhead.karoo.data_field_version"
-                android:value="1.0" />
         </service>
+        
+        <!-- Legacy Karoo data field discovery receiver -->
+        <receiver
+            android:name=".karoo.KarooDataFieldReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.hammerhead.karoo.DISCOVER_DATA_PROVIDERS" />
+                <action android:name="com.hammerhead.karoo.REQUEST_DATA_FIELDS" />
+            </intent-filter>
+        </receiver>
+
     </application>
 
 </manifest>

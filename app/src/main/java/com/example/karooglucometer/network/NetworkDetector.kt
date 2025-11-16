@@ -51,15 +51,35 @@ class NetworkDetector(private val context: Context) {
                     ?: emptyList()
                 
                 if (addresses.isNotEmpty()) {
+                    // Enhanced BT-PAN detection
+                    val name = networkInterface.name.lowercase()
+                    val displayName = networkInterface.displayName?.lowercase() ?: ""
+                    
+                    // Check for various BT-PAN interface patterns
+                    val isBluetoothPan = name.contains("bt") || 
+                                        name.contains("bnep") ||
+                                        name.contains("pan") ||
+                                        name.startsWith("rndis") ||
+                                        displayName.contains("bluetooth") ||
+                                        displayName.contains("pan") ||
+                                        // Check for BT-PAN IP ranges
+                                        addresses.any { ip ->
+                                            ip.startsWith("192.168.44.") ||
+                                            ip.startsWith("192.168.43.") ||
+                                            ip.startsWith("192.168.42.")
+                                        }
+                    
                     interfaces.add(
                         NetworkInterfaceInfo(
                             name = networkInterface.name,
                             displayName = networkInterface.displayName,
                             addresses = addresses,
-                            isBluetoothPan = networkInterface.name.contains("bt", ignoreCase = true) 
-                                || networkInterface.name.contains("bnep", ignoreCase = true)
+                            isBluetoothPan = isBluetoothPan
                         )
                     )
+                    
+                    // Log all interfaces for debugging
+                    Log.d("NetworkDetector", "Interface: ${networkInterface.name} (${networkInterface.displayName}) -> BT-PAN: $isBluetoothPan, IPs: $addresses")
                 }
             }
         } catch (e: Exception) {

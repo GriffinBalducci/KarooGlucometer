@@ -33,7 +33,10 @@ fun SimpleDebugOverlay(
     usingTestData: Boolean,
     networkDetector: NetworkDetector,
     currentPhoneIp: String,
-    onIpChanged: (String) -> Unit
+    onIpChanged: (String) -> Unit,
+    karooServiceStatus: Map<String, Any> = emptyMap(),
+    onKarooTest: () -> Unit = {},
+    onKarooTestBroadcast: () -> Unit = {}
 ) {
     AnimatedVisibility(
         visible = isVisible,
@@ -222,7 +225,7 @@ fun SimpleDebugOverlay(
                             )
                         }
 
-                        // Karoo Status (simplified)
+                        // Legacy Karoo Status (older firmware integration)
                         item {
                             Card(
                                 modifier = Modifier.fillMaxWidth(),
@@ -235,22 +238,95 @@ fun SimpleDebugOverlay(
                                         .fillMaxWidth()
                                         .padding(14.dp)
                                 ) {
-                                    Text(
-                                        "Karoo Integration",
-                                        style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = FontWeight.Medium,
-                                        color = Color.Black
-                                    )
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            "Karoo Integration",
+                                            style = MaterialTheme.typography.titleMedium,
+                                            fontWeight = FontWeight.Medium,
+                                            color = Color.Black
+                                        )
+                                        
+                                        // Test buttons
+                                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                            Button(
+                                                onClick = onKarooTest,
+                                                modifier = Modifier.height(28.dp),
+                                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                                                colors = ButtonDefaults.buttonColors(
+                                                    containerColor = Color(0xFF2196F3)
+                                                )
+                                            ) {
+                                                Text(
+                                                    "Test",
+                                                    fontSize = 10.sp,
+                                                    color = Color.White
+                                                )
+                                            }
+                                            
+                                            Button(
+                                                onClick = onKarooTestBroadcast,
+                                                modifier = Modifier.height(28.dp),
+                                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                                                colors = ButtonDefaults.buttonColors(
+                                                    containerColor = Color(0xFF4CAF50)
+                                                )
+                                            ) {
+                                                Text(
+                                                    "Broadcast",
+                                                    fontSize = 10.sp,
+                                                    color = Color.White
+                                                )
+                                            }
+                                        }
+                                    }
                                     
                                     Spacer(modifier = Modifier.height(8.dp))
                                     
+                                    // Service Status from actual service
+                                    val serviceActive = karooServiceStatus["service_active"] as? Boolean ?: false
+                                    val latestReading = karooServiceStatus["latest_reading"]?.toString() ?: "none"
+                                    val broadcastCount = karooServiceStatus["broadcast_count"]?.toString() ?: "0"
+                                    val testMode = karooServiceStatus["test_mode"] as? Boolean ?: false
+                                    
                                     Text(
-                                        "Service: Active",
+                                        "Service: ${if (serviceActive) "✅ Active" else "❌ Inactive"}",
+                                        fontSize = 12.sp,
+                                        color = if (serviceActive) Color(0xFF4CAF50) else Color(0xFFF44336),
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                    
+                                    Text(
+                                        "Latest Reading: $latestReading mg/dL",
                                         fontSize = 12.sp,
                                         color = Color.Black.copy(alpha = 0.8f)
                                     )
+                                    
                                     Text(
-                                        "Data fields: glucose_current, glucose_trend, glucose_time",
+                                        "Broadcast Count: $broadcastCount",
+                                        fontSize = 12.sp,
+                                        color = Color.Black.copy(alpha = 0.8f)
+                                    )
+                                    
+                                    Text(
+                                        "Test Mode: ${if (testMode) "✅ Enabled" else "❌ Disabled"}",
+                                        fontSize = 12.sp,
+                                        color = if (testMode) Color(0xFF4CAF50) else Color.Black.copy(alpha = 0.8f)
+                                    )
+                                    
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    
+                                    Text(
+                                        "Legacy Integration: Broadcast-based for older firmware",
+                                        fontSize = 11.sp,
+                                        color = Color.Black.copy(alpha = 0.7f)
+                                    )
+                                    
+                                    Text(
+                                        "Data fields: glucose, glucose_trend, glucose_age",
                                         fontSize = 11.sp,
                                         color = Color.Black.copy(alpha = 0.7f)
                                     )
