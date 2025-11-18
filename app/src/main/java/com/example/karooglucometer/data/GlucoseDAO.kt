@@ -32,4 +32,8 @@ interface GlucoseDao {
     // getRecent() returns the most recent 5 GlucoseReadings
     @Query("SELECT * FROM glucose_readings ORDER BY timestamp DESC LIMIT 5")
     suspend fun getRecent(): List<GlucoseReading>
+
+    // getReadingByTimestamp() checks if a reading with specific timestamp exists
+    @Query("SELECT * FROM glucose_readings WHERE timestamp = :timestamp LIMIT 1")
+    suspend fun getReadingByTimestamp(timestamp: Long): GlucoseReading?
 }

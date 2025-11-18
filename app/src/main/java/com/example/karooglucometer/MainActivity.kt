@@ -1,13 +1,18 @@
 package com.example.karooglucometer
 
+import android.Manifest
 import android.annotation.SuppressLint
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
 import android.util.Log
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
@@ -58,12 +63,9 @@ import com.example.karooglucometer.data.GlucoseDatabase
 import com.example.karooglucometer.data.GlucoseReading
 import com.example.karooglucometer.monitoring.DataSourceMonitor
 import com.example.karooglucometer.monitoring.SimpleDebugOverlay
-import com.example.karooglucometer.network.ConnectionTester
-import com.example.karooglucometer.network.GlucoseFetcher
-import com.example.karooglucometer.network.NetworkDetector
-import com.example.karooglucometer.testing.TestDataService
-import com.example.karooglucometer.ui.theme.KarooGlucometerTheme
-import com.example.karooglucometer.karoo.KarooDataFieldService
+import com.example.karooglucometer.monitoring.ConnectionHealthMonitor
+import com.example.karooglucometer.validation.GlucoseDataValidator
+import com.example.karooglucometer.adapter.BleDatabaseAdapter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -83,23 +85,27 @@ import androidx.core.graphics.toColorInt
 class MainActivity : ComponentActivity() {
     // Only initialize on runtime (for preview compatibility)
     private lateinit var db: GlucoseDatabase
-    private lateinit var fetcher: GlucoseFetcher
     private lateinit var monitor: DataSourceMonitor
-    private lateinit var networkDetector: NetworkDetector
-    private lateinit var connectionTester: ConnectionTester
-    private var karooDataFieldService: KarooDataFieldService? = null
-    private var phoneIp by mutableStateOf("192.168.44.1") // Common Bluetooth PAN IP (change if your phone uses different IP)
+    private lateinit var bleAdapter: BleDatabaseAdapter
+    private lateinit var healthMonitor: ConnectionHealthMonitor
+    private lateinit var dataValidator: GlucoseDataValidator
 
-    // Set to true for testing with mock data, false to force real xDrip fetching
-    private val useTestData = false // Changed to false to enable real connections
+    // Set to false since we're using BLE GATT now
+    private val useTestData = false
     private val debugMode = BuildConfig.DEBUG
     private val appStartTime = System.currentTimeMillis()
     
     // Chart performance optimization - disable complex animations on real device
     private val enableChartAnimations = false // Disabled to improve performance
 
+    // Permission request code
+    private val PERMISSION_REQUEST_CODE = 1001
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // Request BLE permissions first
+        requestBluetoothPermissions()
 
         // This code block ensures upper icons remain black
         WindowCompat.setDecorFitsSystemWindows(window, false)
@@ -109,35 +115,36 @@ class MainActivity : ComponentActivity() {
 
         // Initialize monitoring
         monitor = DataSourceMonitor(this)
-        networkDetector = NetworkDetector(this)
-        connectionTester = ConnectionTester()
+        healthMonitor = ConnectionHealthMonitor(this)
+        dataValidator = GlucoseDataValidator()
+        
+        // Initialize BLE adapter
+        bleAdapter = BleDatabaseAdapter(this)
 
-        // Create database, and fetcher
+        // Create database
         db = Room.databaseBuilder(
             applicationContext,
             GlucoseDatabase::class.java,
             "glucose_db"
         ).build()
-        fetcher = GlucoseFetcher(applicationContext)
 
         // Initialize app status monitoring
         monitor.updateAppStatus(debugMode, System.currentTimeMillis() - appStartTime)
 
-        // Start Legacy Karoo Data Field Service for older firmware
-        startLegacyKarooDataFieldService()
+        // Initialize comprehensive monitoring system
+        val dataSourceManager = bleAdapter.getDataSourceManager() // We'll need to expose this
+        healthMonitor.initialize(dataSourceManager)
+        dataValidator.initialize(dataSourceManager)
 
-        // In debug mode with test data enabled, populate with test data for easy testing
-        if (debugMode && useTestData) {
-            val testDataService = TestDataService(applicationContext, monitor)
-            testDataService.populateTestData()
+        // Start BLE GATT monitoring (only after permissions)
+        if (hasBluetoothPermissions()) {
+            bleAdapter.startMonitoring()
         }
 
         setContent {
-            KarooGlucometerTheme {
+            MaterialTheme {
                 var showDebugOverlay by remember { mutableStateOf(false) }
                 var showFullscreenGlucose by remember { mutableStateOf(false) }
-                var karooServiceStatus by remember { mutableStateOf<Map<String, Any>>(emptyMap()) }
-                var lastKarooTestTime by remember { mutableStateOf(0L) }
 
                 Box(modifier = Modifier.fillMaxSize()) {
                     // Render main surface container
@@ -175,23 +182,77 @@ class MainActivity : ComponentActivity() {
                             isVisible = showDebugOverlay,
                             onDismiss = { showDebugOverlay = false },
                             usingTestData = useTestData,
-                            networkDetector = networkDetector,
-                            currentPhoneIp = phoneIp,
-                            onIpChanged = { newIp -> phoneIp = newIp },
-                            karooServiceStatus = karooServiceStatus,
-                            onKarooTest = {
-                                karooDataFieldService?.enableTestMode()
-                                karooServiceStatus = karooDataFieldService?.getServiceStatus() ?: emptyMap()
-                                lastKarooTestTime = System.currentTimeMillis()
-                            },
-                            onKarooTestBroadcast = {
-                                karooDataFieldService?.triggerTestBroadcast()
-                                karooServiceStatus = karooDataFieldService?.getServiceStatus() ?: emptyMap()
-                                lastKarooTestTime = System.currentTimeMillis()
-                            }
+                            bleConnectionStatus = bleAdapter.getConnectionStatus(),
+                            activeDataSource = bleAdapter.getActiveDataSource(),
+                            onRefresh = { bleAdapter.refresh() },
+                            healthMonitor = healthMonitor,
+                            dataValidator = dataValidator
                         )
                     }
                 }
+            }
+        }
+    }
+
+    private fun hasBluetoothPermissions(): Boolean {
+        val bluetoothPermissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            // Android 12+ permissions
+            arrayOf(
+                Manifest.permission.BLUETOOTH_SCAN,
+                Manifest.permission.BLUETOOTH_CONNECT,
+                Manifest.permission.ACCESS_FINE_LOCATION
+            )
+        } else {
+            // Pre-Android 12 permissions
+            arrayOf(
+                Manifest.permission.BLUETOOTH,
+                Manifest.permission.BLUETOOTH_ADMIN,
+                Manifest.permission.ACCESS_FINE_LOCATION
+            )
+        }
+
+        return bluetoothPermissions.all { permission ->
+            ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED
+        }
+    }
+
+    private fun requestBluetoothPermissions() {
+        if (hasBluetoothPermissions()) {
+            return // Already have permissions
+        }
+
+        val permissionsToRequest = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            arrayOf(
+                Manifest.permission.BLUETOOTH_SCAN,
+                Manifest.permission.BLUETOOTH_CONNECT,
+                Manifest.permission.ACCESS_FINE_LOCATION
+            )
+        } else {
+            arrayOf(
+                Manifest.permission.BLUETOOTH,
+                Manifest.permission.BLUETOOTH_ADMIN,
+                Manifest.permission.ACCESS_FINE_LOCATION
+            )
+        }
+
+        ActivityCompat.requestPermissions(this, permissionsToRequest, PERMISSION_REQUEST_CODE)
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+
+        if (requestCode == PERMISSION_REQUEST_CODE) {
+            if (grantResults.all { it == PackageManager.PERMISSION_GRANTED }) {
+                Log.i("BLE", "All Bluetooth permissions granted - starting BLE monitoring")
+                bleAdapter.startMonitoring()
+            } else {
+                Log.w("BLE", "Some Bluetooth permissions denied - BLE scanning may not work")
+                // Still try to start monitoring, some functionality might work
+                bleAdapter.startMonitoring()
             }
         }
     }
@@ -210,70 +271,8 @@ class MainActivity : ComponentActivity() {
                         // Update app uptime
                         monitor.updateAppStatus(debugMode, System.currentTimeMillis() - appStartTime)
 
-                        // Log network status for debugging (helps verify Bluetooth PAN)
-                        if (debugMode && !useTestData) {
-                            networkDetector.logNetworkStatus()
-                            
-                            // Explicit Bluetooth PAN verification
-                            val networkStatus = networkDetector.getNetworkStatus()
-                            Log.d("BluetoothPAN", "=== BLUETOOTH PAN VERIFICATION ===")
-                            Log.d("BluetoothPAN", "Network Type: ${networkStatus.networkType}")
-                            Log.d("BluetoothPAN", "Is Bluetooth PAN Active: ${networkStatus.isBluetoothPanActive}")
-                            Log.d("BluetoothPAN", "Bluetooth PAN IP: ${networkStatus.bluetoothPanIp ?: "None detected"}")
-                            
-                            if (networkStatus.isBluetoothPanActive) {
-                                Log.d("BluetoothPAN", "BLUETOOTH PAN IS WORKING!")
-                                Log.d("BluetoothPAN", "Current IP: $phoneIp, Detected BT-PAN IP: ${networkStatus.bluetoothPanIp}")
-                            } else {
-                                Log.d("BluetoothPAN", "Bluetooth PAN not detected - using ${networkStatus.networkType}")
-                            }
-                            Log.d("BluetoothPAN", "==============================")
-                        }
-
-                        // Use test data if enabled, otherwise fetch from xDrip
-                        if (useTestData) {
-                            val testDataService = TestDataService(applicationContext, monitor)
-                            testDataService.addSingleTestReading()
-                        } else {
-                            // Update HTTP status - attempting connection
-                            monitor.updateHttpStatus(true, 0, null)
-                            Log.d("MainActivity", "Starting glucose fetch from $phoneIp")
-
-                            try {
-                                // First, test basic connectivity (faster than HTTP timeout)
-                                val connectionTest = connectionTester.testConnection(phoneIp, 17580, 3000)
-
-                                if (!connectionTest.success) {
-                                    // Connection test failed - provide detailed error
-                                    Log.e("MainActivity", "Connection test failed: ${connectionTest.errorMessage}")
-                                    throw Exception(connectionTest.errorMessage ?: "Connection test failed")
-                                }
-
-                                Log.d("MainActivity", "Connection test passed, fetching glucose data...")
-                                // Connection test passed, now fetch glucose data
-                                val hasNewData = fetcher.fetchAndSave(phoneIp)
-
-                                // Update HTTP status - success
-                                monitor.updateHttpStatus(false, System.currentTimeMillis(), null)
-                                
-                                if (hasNewData) {
-                                    Log.d("MainActivity", "NEW glucose data received - updating legacy Karoo")
-                                    // Update Legacy Karoo Data Field Service with new glucose reading
-                                    val latestReading = dao.getRecent().firstOrNull()
-                                    if (latestReading != null) {
-                                        Log.d("MainActivity", "Publishing to legacy Karoo: ${latestReading.glucoseValue} mg/dL")
-                                        karooDataFieldService?.updateGlucoseReading(latestReading)
-                                    }
-                                } else {
-                                    Log.d("MainActivity", "No new glucose data - legacy Karoo update skipped (5-min optimization)")
-                                }
-                            } catch (e: Exception) {
-                                // Update HTTP status - error with detailed message
-                                Log.e("MainActivity", "Failed to fetch glucose data from $phoneIp", e)
-                                monitor.updateHttpStatus(false, 0, e.message)
-                            }
-                        }
-
+                        // BLE monitoring handles data automatically via bleAdapter
+                        
                         // Load the 5 most recent readings from the database
                         val updated = dao.getRecent()
 
@@ -777,63 +776,17 @@ class MainActivity : ComponentActivity() {
             modifier = Modifier.fillMaxSize()
         )
     }
-
-    // PREVIEWS
-    @Preview(showBackground = true, widthDp = 400, heightDp = 800)
-    @Composable
-    fun PreviewModernGlucoseUI() {
-        val sample = listOf(
-            GlucoseReading(id = 1, timestamp = System.currentTimeMillis(), glucoseValue = 125),
-            GlucoseReading(id = 2, timestamp = System.currentTimeMillis() - 5 * 60_000, glucoseValue = 118),
-            GlucoseReading(id = 3, timestamp = System.currentTimeMillis() - 10 * 60_000, glucoseValue = 112),
-            GlucoseReading(id = 4, timestamp = System.currentTimeMillis() - 15 * 60_000, glucoseValue = 108),
-            GlucoseReading(id = 5, timestamp = System.currentTimeMillis() - 20 * 60_000, glucoseValue = 102),
-            GlucoseReading(id = 6, timestamp = System.currentTimeMillis() - 25 * 60_000, glucoseValue = 98)
-        )
-
-        KarooGlucometerTheme {
-            Surface(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(MaterialTheme.colorScheme.background)
-            ) {
-                ModernGlucoseUI(recent = sample, onGlucoseClick = {})
-            }
-        }
-    }
     
-    /**
-     * Start Legacy Karoo Data Field Service for older firmware compatibility
-     */
-    private fun startLegacyKarooDataFieldService() {
+    override fun onDestroy() {
+        super.onDestroy()
+        
+        // Cleanup monitoring resources
         try {
-            val serviceIntent = Intent(this, KarooDataFieldService::class.java)
-            val connection = object : ServiceConnection {
-                override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
-                    val binder = service as KarooDataFieldService.LocalBinder
-                    karooDataFieldService = binder.getService()
-                    Log.d("MainActivity", "Connected to Legacy Karoo Data Field Service")
-                }
-                
-                override fun onServiceDisconnected(name: ComponentName?) {
-                    karooDataFieldService = null
-                    Log.d("MainActivity", "Disconnected from Legacy Karoo Data Field Service")
-                }
-            }
-            
-            bindService(serviceIntent, connection, BIND_AUTO_CREATE)
-            startService(serviceIntent)
-            
+            healthMonitor.destroy()
+            dataValidator.stop()
+            bleAdapter.destroy()
         } catch (e: Exception) {
-            Log.e("MainActivity", "Failed to start Legacy Karoo Data Field Service", e)
-        }
-    }
-
-    @Preview(showBackground = true, widthDp = 400, heightDp = 800)
-    @Composable
-    fun PreviewFullscreenGlucose() {
-        KarooGlucometerTheme {
-            FullscreenGlucoseView(onBack = {})
+            Log.w("MainActivity", "Error cleaning up monitoring resources", e)
         }
     }
 }
