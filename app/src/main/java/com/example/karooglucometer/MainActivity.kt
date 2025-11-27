@@ -90,8 +90,9 @@ class MainActivity : ComponentActivity() {
     private lateinit var healthMonitor: ConnectionHealthMonitor
     private lateinit var dataValidator: GlucoseDataValidator
 
-    // Set to false since we're using BLE GATT now
-    private val useTestData = false
+    // Test data mode for demonstration - can be toggled in debug interface
+    private var useTestData by mutableStateOf(false)
+    private var needsInitialTestData = false
     private val debugMode = BuildConfig.DEBUG
     private val appStartTime = System.currentTimeMillis()
     
@@ -271,6 +272,16 @@ class MainActivity : ComponentActivity() {
                         // Update app uptime
                         monitor.updateAppStatus(debugMode, System.currentTimeMillis() - appStartTime)
 
+                        // Generate test data if enabled
+                        if (useTestData) {
+                            // Generate initial batch if needed
+                            if (needsInitialTestData) {
+                                generateInitialTestData(dao)
+                                needsInitialTestData = false
+                            }
+                            generateTestGlucoseReading(dao)
+                        }
+
                         // BLE monitoring handles data automatically via bleAdapter
                         
                         // Load the 5 most recent readings from the database
@@ -286,8 +297,8 @@ class MainActivity : ComponentActivity() {
                         Log.e("GlucoseApp", "Error updating DB", e)
                     }
 
-                    // Repeat every 60 seconds
-                    delay(60_000L)
+                    // Repeat every 10 seconds (faster when using test data)
+                    delay(10_000L)
                 }
             }
         }
@@ -775,6 +786,85 @@ class MainActivity : ComponentActivity() {
             },
             modifier = Modifier.fillMaxSize()
         )
+    }
+    
+    // Test data generator for demonstration purposes
+    private var lastTestReading: Long = 0
+    private var testBaseValue = 120.0 // Starting glucose value
+    private var testTrendDirection = 1 // 1 for up, -1 for down
+    
+    private suspend fun generateTestGlucoseReading(dao: com.example.karooglucometer.data.GlucoseDao) {
+        try {
+            val currentTime = System.currentTimeMillis()
+            
+            // Generate new reading every 30 seconds when in test mode for quick demonstration
+            if (currentTime - lastTestReading < 30_000) return
+            
+            // Create realistic glucose fluctuation
+            val variation = (kotlin.random.Random.nextDouble() - 0.5) * 10 // ±5 mg/dL variation
+            val trend = testTrendDirection * kotlin.random.Random.nextDouble() * 2 // ±2 mg/dL trend
+            
+            testBaseValue += trend + variation
+            
+            // Keep values in realistic range (70-300 mg/dL)
+            testBaseValue = testBaseValue.coerceIn(70.0, 300.0)
+            
+            // Change trend direction occasionally
+            if (kotlin.random.Random.nextDouble() < 0.1) { // 10% chance
+                testTrendDirection *= -1
+            }
+            
+            // Create test reading
+            val testReading = GlucoseReading(
+                id = 0, // Room will auto-generate
+                timestamp = currentTime,
+                glucoseValue = testBaseValue.roundToInt()
+            )
+            
+            dao.insert(testReading)
+            lastTestReading = currentTime
+            
+            Log.d("TestData", "Generated test glucose reading: ${testBaseValue.roundToInt()} mg/dL")
+            
+        } catch (e: Exception) {
+            Log.e("TestData", "Error generating test data", e)
+        }
+    }
+    
+    // Generate initial batch of test data when test mode is first enabled
+    private suspend fun generateInitialTestData(dao: com.example.karooglucometer.data.GlucoseDao) {
+        try {
+            val currentTime = System.currentTimeMillis()
+            val readings = mutableListOf<GlucoseReading>()
+            
+            // Generate 5 readings going back in time (30 minutes, 25 min, 20 min, 15 min, 10 min, 5 min ago)
+            for (i in 6 downTo 1) {
+                val timeOffset = i * 5 * 60 * 1000L // 5 minutes each
+                val timestamp = currentTime - timeOffset
+                
+                // Create realistic progression
+                val baseValue = 115 + (i * 2) + (kotlin.random.Random.nextDouble() - 0.5) * 8
+                val clampedValue = baseValue.coerceIn(70.0, 200.0)
+                
+                readings.add(GlucoseReading(
+                    id = 0,
+                    timestamp = timestamp,
+                    glucoseValue = clampedValue.roundToInt()
+                ))
+            }
+            
+            // Insert all readings
+            readings.forEach { dao.insert(it) }
+            
+            // Update the test baseline to match the last reading
+            testBaseValue = readings.last().glucoseValue.toDouble()
+            lastTestReading = currentTime - 30_000 // Set to allow immediate next generation
+            
+            Log.d("TestData", "Generated ${readings.size} initial test readings")
+            
+        } catch (e: Exception) {
+            Log.e("TestData", "Error generating initial test data", e)
+        }
     }
     
     override fun onDestroy() {

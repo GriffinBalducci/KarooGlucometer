@@ -19,13 +19,13 @@ KarooGlucometer provides real-time glucose monitoring for cyclists using Hammerh
 ### Requirements
 - Hammerhead Karoo device
 - USB debugging enabled
-- ADB installed and configured
+- **ADB automatically configured by scripts** (no manual installation needed)
 - Optional: xDrip+ installed for onboard glucose monitoring
 - Optional: BLE glucose monitor for external monitoring
 
 ### Installation
 
-**For complete beginners - use the automated scripts:**
+**For complete beginners - use the automated scripts (ADB auto-installed):**
 
 1. **Setup Android Phone (BLE Broadcaster)**:
    ```batch

@@ -13,9 +13,84 @@ Write-Host "Advanced xDrip+ Configuration Script" -ForegroundColor Cyan
 Write-Host "====================================" -ForegroundColor Cyan
 Write-Host ""
 
+# Auto-configure ADB if not available
+function Install-ADB {
+    Write-Host "ADB not found. Setting up Android SDK Platform Tools..." -ForegroundColor Yellow
+    Write-Host ""
+    
+    # Create tools directory
+    $toolsDir = "$env:USERPROFILE\android-tools"
+    $adbDir = "$toolsDir\platform-tools"
+    
+    if (-not (Test-Path $toolsDir)) {
+        New-Item -ItemType Directory -Path $toolsDir -Force | Out-Null
+    }
+    
+    # Download Android SDK Platform Tools if not already present
+    if (-not (Test-Path "$adbDir\adb.exe")) {
+        Write-Host "Downloading Android SDK Platform Tools..." -ForegroundColor White
+        
+        $platformToolsUrl = "https://dl.google.com/android/repository/platform-tools-latest-windows.zip"
+        $zipFile = "$toolsDir\platform-tools.zip"
+        
+        try {
+            # Download with progress
+            $webClient = New-Object System.Net.WebClient
+            $webClient.DownloadFile($platformToolsUrl, $zipFile)
+            
+            # Extract
+            Write-Host "Extracting Platform Tools..." -ForegroundColor White
+            Expand-Archive -Path $zipFile -DestinationPath $toolsDir -Force
+            Remove-Item $zipFile -Force
+            
+            Write-Host "Platform Tools installed to: $adbDir" -ForegroundColor Green
+        }
+        catch {
+            Write-Host "Failed to download Platform Tools: $($_.Exception.Message)" -ForegroundColor Red
+            Write-Host "Please manually install from: https://developer.android.com/studio/releases/platform-tools" -ForegroundColor Cyan
+            return $false
+        }
+    }
+    
+    # Add to PATH for this session
+    $env:PATH = "$adbDir;$env:PATH"
+    
+    # Add to user PATH permanently
+    $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+    if ($userPath -notlike "*$adbDir*") {
+        Write-Host "Adding ADB to user PATH..." -ForegroundColor White
+        [Environment]::SetEnvironmentVariable("Path", "$userPath;$adbDir", "User")
+    }
+    
+    return $true
+}
+
+# Check if ADB is available, auto-install if needed
+$adbPath = Get-Command adb -ErrorAction SilentlyContinue
+if (-not $adbPath) {
+    if (-not (Install-ADB)) {
+        exit 1
+    }
+    
+    # Verify installation
+    $adbPath = Get-Command adb -ErrorAction SilentlyContinue
+    if (-not $adbPath) {
+        Write-Host "ADB installation failed. Please restart PowerShell and try again." -ForegroundColor Red
+        exit 1
+    }
+    
+    Write-Host "ADB successfully configured!" -ForegroundColor Green
+    Write-Host ""
+}
+
 # Auto-detect Karoo device if not specified
 if (-not $DeviceId) {
     Write-Host "Auto-detecting Karoo device..." -ForegroundColor White
+    
+    # Start ADB server if needed
+    adb start-server 2>$null | Out-Null
+    Start-Sleep -Seconds 2
+    
     $devices = adb devices 2>$null | Where-Object { $_ -match "KAROO" -and $_ -match "device" }
     
     if (-not $devices) {
