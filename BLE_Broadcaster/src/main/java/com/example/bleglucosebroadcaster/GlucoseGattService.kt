@@ -40,7 +40,7 @@ class GlucoseGattService : Service() {
     private lateinit var bluetoothAdapter: BluetoothAdapter
     private var bluetoothGattServer: BluetoothGattServer? = null
     private var bluetoothLeAdvertiser: BluetoothLeAdvertiser? = null
-    private var advertisingCallback: AdvertisingCallback? = null
+    private var advertisingCallback: AdvertiseCallback? = null
     
     private val connectedDevices = mutableSetOf<BluetoothDevice>()
     private var currentGlucoseValue = 120 // mg/dL
@@ -110,7 +110,7 @@ class GlucoseGattService : Service() {
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("Glucose Broadcaster")
             .setContentText("Broadcasting ${currentGlucoseValue} mg/dL via BLE")
-            .setSmallIcon(android.R.drawable.ic_bluetooth)
+            .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)
             .setOngoing(true)
             .build()
     }
@@ -252,16 +252,14 @@ class GlucoseGattService : Service() {
             .addServiceUuid(ParcelUuid(GLUCOSE_SERVICE_UUID))
             .build()
         
-        advertisingCallback = object : AdvertisingCallback() {
+        advertisingCallback = object : AdvertiseCallback() {
             override fun onStartSuccess(settingsInEffect: AdvertiseSettings?) {
                 Log.d(TAG, "BLE advertising started successfully")
             }
-            
             override fun onStartFailure(errorCode: Int) {
                 Log.e(TAG, "BLE advertising failed with code: $errorCode")
             }
         }
-        
         bluetoothLeAdvertiser?.startAdvertising(settings, data, advertisingCallback)
     }
     

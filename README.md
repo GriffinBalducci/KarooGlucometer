@@ -36,6 +36,41 @@ KarooGlucometer provides real-time glucose monitoring for cyclists using Hammerh
    .\Deploy-BLE-Broadcaster.ps1
    ```
 
+   This script will:
+   - Build the BLE Glucose Broadcaster APK
+   - Install it to your connected Android phone
+   - Grant all required BLE and location permissions
+   - Launch the app automatically
+
+   **Manual installation (if you prefer):**
+   1. Build the APK:
+      ```powershell
+      ./gradlew :BLE_Broadcaster:assembleDebug
+      ```
+   2. Install the APK to your phone:
+      ```powershell
+      adb install -r .\BLE_Broadcaster\build\outputs\apk\debug\BLE_Broadcaster-debug.apk
+      ```
+   3. Grant permissions (optional, handled by script):
+      ```powershell
+      adb shell pm grant com.example.bleglucosebroadcaster android.permission.BLUETOOTH
+      adb shell pm grant com.example.bleglucosebroadcaster android.permission.BLUETOOTH_ADMIN
+      adb shell pm grant com.example.bleglucosebroadcaster android.permission.ACCESS_FINE_LOCATION
+      adb shell pm grant com.example.bleglucosebroadcaster android.permission.ACCESS_COARSE_LOCATION
+      adb shell pm grant com.example.bleglucosebroadcaster android.permission.BLUETOOTH_ADVERTISE
+      adb shell pm grant com.example.bleglucosebroadcaster android.permission.BLUETOOTH_CONNECT
+      adb shell pm grant com.example.bleglucosebroadcaster android.permission.BLUETOOTH_SCAN
+      adb shell pm grant com.example.bleglucosebroadcaster android.permission.WAKE_LOCK
+      adb shell pm grant com.example.bleglucosebroadcaster android.permission.FOREGROUND_SERVICE
+      ```
+   4. Launch the app:
+      ```powershell
+      adb shell am start -n com.example.bleglucosebroadcaster/.MainActivity
+      ```
+   5. Open the app and tap 'Start Broadcasting' to begin advertising glucose data.
+      Use the +10/-10 buttons to adjust glucose values for testing.
+
+
 2. **Setup Karoo Device**:
    ```powershell
    .\Deploy-KarooGlucometer.ps1 -SetupTestData $true

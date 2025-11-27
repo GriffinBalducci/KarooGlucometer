@@ -22,3 +22,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "KarooGlucometer"
 include(":app")
+include(":BLE_Broadcaster")

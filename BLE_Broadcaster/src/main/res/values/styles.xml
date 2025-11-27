@@ -1,8 +1,3 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.BLEGlucoseBroadcaster" parent="Theme.Material3.Light">
-        <item name="colorPrimary">@color/blue_500</item>
-        <item name="colorOnPrimary">@android:color/white</item>
-        <item name="colorSecondary">@color/purple_grey_40</item>
-    </style>
 </resources>
