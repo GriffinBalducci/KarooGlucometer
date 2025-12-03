@@ -23,124 +23,52 @@ KarooGlucometer provides real-time glucose monitoring for cyclists using Hammerh
 - Optional: xDrip+ installed for onboard glucose monitoring
 - Optional: BLE glucose monitor for external monitoring
 
-### Installation
-
-**For complete beginners - use the automated scripts (ADB auto-installed):**
-
-1. **Setup Android Phone (BLE Broadcaster)**:
-   ```batch
-   Install-Phone-App.bat
-   ```
-   OR for advanced users:
-   ```powershell
-   .\Deploy-BLE-Broadcaster.ps1
-   ```
-
-   This script will:
-   - Build the BLE Glucose Broadcaster APK
-   - Install it to your connected Android phone
-   - Grant all required BLE and location permissions
-   - Launch the app automatically
-
-   **Manual installation (if you prefer):**
-   1. Build the APK:
-      ```powershell
-      ./gradlew :BLE_Broadcaster:assembleDebug
-      ```
-   2. Install the APK to your phone:
-      ```powershell
-      adb install -r .\BLE_Broadcaster\build\outputs\apk\debug\BLE_Broadcaster-debug.apk
-      ```
-   3. Grant permissions (optional, handled by script):
-      ```powershell
-      adb shell pm grant com.example.bleglucosebroadcaster android.permission.BLUETOOTH
-      adb shell pm grant com.example.bleglucosebroadcaster android.permission.BLUETOOTH_ADMIN
-      adb shell pm grant com.example.bleglucosebroadcaster android.permission.ACCESS_FINE_LOCATION
-      adb shell pm grant com.example.bleglucosebroadcaster android.permission.ACCESS_COARSE_LOCATION
-      adb shell pm grant com.example.bleglucosebroadcaster android.permission.BLUETOOTH_ADVERTISE
-      adb shell pm grant com.example.bleglucosebroadcaster android.permission.BLUETOOTH_CONNECT
-      adb shell pm grant com.example.bleglucosebroadcaster android.permission.BLUETOOTH_SCAN
-      adb shell pm grant com.example.bleglucosebroadcaster android.permission.WAKE_LOCK
-      adb shell pm grant com.example.bleglucosebroadcaster android.permission.FOREGROUND_SERVICE
-      ```
-   4. Launch the app:
-      ```powershell
-      adb shell am start -n com.example.bleglucosebroadcaster/.MainActivity
-      ```
-   5. Open the app and tap 'Start Broadcasting' to begin advertising glucose data.
-      Use the +10/-10 buttons to adjust glucose values for testing.
 
 
-2. **Setup Karoo Device**:
-   ```powershell
-   .\Deploy-KarooGlucometer.ps1 -SetupTestData $true
-   ```
+# **Android BLE Broadcaster – Quick Setup**
 
-**What the scripts do automatically:**
-- **Phone script**: Builds and installs BLE Glucose Broadcaster app, grants all permissions, launches app
-- **Karoo script**: Builds main app, configures xDrip+, grants BLE permissions, starts monitoring
+### With Phone, Scan this QR Code and follow setup prompts:
 
-### Manual Installation (Advanced)
+<img width="500" height="500" alt="broadcasterqr" src="https://github.com/user-attachments/assets/a552c805-c6f2-4e06-8b42-a091db46ec86" />
 
-If you prefer manual control:
 
-1. Connect Karoo device via USB
-2. Connect Android phone via USB (for BLE broadcaster)
-3. Run Karoo deployment script:
-```powershell
-.\Deploy-KarooGlucometer.ps1 -SetupTestData $true
-```
+# **Karoo APK Installation – Quick Setup**
 
-The script automatically:
-- Detects connected Karoo device
-- Builds and installs the application
-- Grants required BLE permissions
-- **Comprehensive xDrip+ configuration** (Engineering Mode, Web Service, Test Data)
-- Starts the application
+### **1. Download Requirements**
 
-### Advanced xDrip+ Setup
+- **Android Platform Tools**  
+    [https://developer.android.com/tools/releases/platform-tools](https://developer.android.com/tools/releases/platform-tools)  
+    → Download and unzip.
+    
+- **Receiver APK**  
+    [https://github.com/GriffinBalducci/KarooGlucometer/releases/download/1.1/receiver.apk](https://github.com/GriffinBalducci/KarooGlucometer/releases/download/1.1/receiver.apk)  
+    → Save/transfer this file into the unzipped **platform-tools** folder.
+    
 
-For complex xDrip+ scenarios, use the dedicated setup script:
-```powershell
-.\Setup-XDrip-Advanced.ps1 -XDripApkPath "path\to\xdrip.apk"
-```
+---
 
-This comprehensive script:
-- Installs/reinstalls xDrip+ if needed
-- Enables Engineering Mode for test data injection
-- Configures Follower mode for external data sources
-- Sets up web service on port 17580 with CORS support
-- Injects 2 hours of realistic test glucose data
-- Verifies all services are running correctly
+### **2. Connect & Verify Device**
 
-### xDrip+ Configuration Details
+After connecting to Karoo via USB, in your terminal, navigate to the **platform-tools** directory:
 
-The deployment automatically handles the complex xDrip+ setup:
-- **Engineering Mode**: Enabled for test data injection and advanced features
-- **Data Source**: Configured to "Follower" mode for external glucose monitors
-- **Web Service**: Port 17580 enabled with authentication disabled for local access
-- **Permissions**: All Bluetooth, location, and network permissions granted
-- **Test Data**: Realistic glucose readings with trends and directions
-- **Service Management**: Automatic startup of all required background services
+`cd path/to/platform-tools`
 
-### Usage
+Check that the Karoo is detected:
 
-**Complete Setup for Beginners:**
+`./adb devices`
 
-1. **Setup Phone**: Run `Install-Phone-App.bat` (connects your phone as fake glucose monitor)
-2. **Setup Karoo**: Run `.\Deploy-KarooGlucometer.ps1 -SetupTestData $true`
-3. **Start Broadcasting**: Open BLE Broadcaster app on phone → tap "Start Broadcasting"
-4. **Open Karoo App**: KarooGlucometer will automatically detect and connect to phone
-5. **Monitor Data**: Tap Info button on Karoo to access debug overlay and connection status
+Copy the device name from the list (e.g., `KAROO20ALC030802155`).
 
-**Testing and Debugging:**
+---
 
-1. **Phone App**: Use +/- buttons to adjust glucose values in real-time
-2. **Karoo Debug Overlay**: Monitor BLE GATT and xDrip+ connection health
-3. **Data Validation**: Check data quality metrics and source consistency
-4. **Connection Status**: Real-time monitoring of both data sources
+### **3. Install the APK**
 
-**Advanced Configuration:**
+`./adb -s <DEVICE_NAME> install receiver.apk`
+
+Replace `<DEVICE_NAME>` with the name shown by `adb devices`.
+
+
+
 
 ## Architecture
 
