@@ -1,8 +1,18 @@
 package com.example.karooglucometer
 
+import android.Manifest
 import android.annotation.SuppressLint
+import android.content.ComponentName
+import android.content.Context
+import android.content.Intent
+import android.content.ServiceConnection
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
+import android.os.IBinder
 import android.util.Log
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
@@ -21,7 +31,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.North
@@ -42,6 +52,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
@@ -51,12 +62,10 @@ import androidx.room.Room
 import com.example.karooglucometer.data.GlucoseDatabase
 import com.example.karooglucometer.data.GlucoseReading
 import com.example.karooglucometer.monitoring.DataSourceMonitor
-import com.example.karooglucometer.monitoring.DebugOverlay
-import com.example.karooglucometer.network.ConnectionTester
-import com.example.karooglucometer.network.GlucoseFetcher
-import com.example.karooglucometer.network.NetworkDetector
-import com.example.karooglucometer.testing.TestDataService
-import com.example.karooglucometer.ui.theme.KarooGlucometerTheme
+import com.example.karooglucometer.monitoring.SimpleDebugOverlay
+import com.example.karooglucometer.monitoring.ConnectionHealthMonitor
+import com.example.karooglucometer.validation.GlucoseDataValidator
+import com.example.karooglucometer.adapter.BleDatabaseAdapter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -76,50 +85,65 @@ import androidx.core.graphics.toColorInt
 class MainActivity : ComponentActivity() {
     // Only initialize on runtime (for preview compatibility)
     private lateinit var db: GlucoseDatabase
-    private lateinit var fetcher: GlucoseFetcher
     private lateinit var monitor: DataSourceMonitor
-    private lateinit var networkDetector: NetworkDetector
-    private lateinit var connectionTester: ConnectionTester
-    private val phoneIp = "10.0.2.2" // Special IP for emulator to access host machine (use real phone IP like "192.168.1.100" for actual device)
+    private lateinit var bleAdapter: BleDatabaseAdapter
+    private lateinit var healthMonitor: ConnectionHealthMonitor
+    private lateinit var dataValidator: GlucoseDataValidator
 
-    // Set to true for testing with mock data, false to force real xDrip fetching
-    private val useTestData = true // Change to false when testing with real xDrip
+    // Test data mode for demonstration - can be toggled in debug interface
+    private var useTestData by mutableStateOf(false)
+    private var needsInitialTestData = false
     private val debugMode = BuildConfig.DEBUG
     private val appStartTime = System.currentTimeMillis()
+    
+    // Chart performance optimization - disable complex animations on real device
+    private val enableChartAnimations = false // Disabled to improve performance
+
+    // Permission request code
+    private val PERMISSION_REQUEST_CODE = 1001
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        // Request BLE permissions first
+        requestBluetoothPermissions()
+
         // This code block ensures upper icons remain black
         WindowCompat.setDecorFitsSystemWindows(window, false)
-        window.statusBarColor = android.graphics.Color.TRANSPARENT
         val windowInsetsController = WindowCompat.getInsetsController(window, window.decorView)
         windowInsetsController.isAppearanceLightStatusBars = true
+        window.statusBarColor = android.graphics.Color.TRANSPARENT
 
         // Initialize monitoring
         monitor = DataSourceMonitor(this)
-        networkDetector = NetworkDetector(this)
-        connectionTester = ConnectionTester()
+        healthMonitor = ConnectionHealthMonitor(this)
+        dataValidator = GlucoseDataValidator()
+        
+        // Initialize BLE adapter
+        bleAdapter = BleDatabaseAdapter(this)
 
-        // Create database, and fetcher
+        // Create database
         db = Room.databaseBuilder(
             applicationContext,
             GlucoseDatabase::class.java,
             "glucose_db"
         ).build()
-        fetcher = GlucoseFetcher(applicationContext)
 
         // Initialize app status monitoring
         monitor.updateAppStatus(debugMode, System.currentTimeMillis() - appStartTime)
 
-        // In debug mode with test data enabled, populate with test data for easy testing
-        if (debugMode && useTestData) {
-            val testDataService = TestDataService(applicationContext, monitor)
-            testDataService.populateTestData()
+        // Initialize comprehensive monitoring system
+        val dataSourceManager = bleAdapter.getDataSourceManager() // We'll need to expose this
+        healthMonitor.initialize(dataSourceManager)
+        dataValidator.initialize(dataSourceManager)
+
+        // Start BLE GATT monitoring (only after permissions)
+        if (hasBluetoothPermissions()) {
+            bleAdapter.startMonitoring()
         }
 
         setContent {
-            KarooGlucometerTheme {
+            MaterialTheme {
                 var showDebugOverlay by remember { mutableStateOf(false) }
                 var showFullscreenGlucose by remember { mutableStateOf(false) }
 
@@ -147,21 +171,89 @@ class MainActivity : ComponentActivity() {
                             onClick = { showDebugOverlay = !showDebugOverlay },
                             modifier = Modifier
                                 .align(Alignment.TopEnd)
-                                .padding(16.dp)
+                                .padding(16.dp),
+                            containerColor = Color(0xFFF5F5F5)
                         ) {
                             Icon(Icons.Default.Info, contentDescription = "Debug Info")
                         }
 
                         // Debug overlay
-                        DebugOverlay(
+                        SimpleDebugOverlay(
                             monitor = monitor,
                             isVisible = showDebugOverlay,
                             onDismiss = { showDebugOverlay = false },
                             usingTestData = useTestData,
-                            networkDetector = networkDetector
+                            bleConnectionStatus = bleAdapter.getConnectionStatus(),
+                            activeDataSource = bleAdapter.getActiveDataSource(),
+                            onRefresh = { bleAdapter.refresh() },
+                            healthMonitor = healthMonitor,
+                            dataValidator = dataValidator
                         )
                     }
                 }
+            }
+        }
+    }
+
+    private fun hasBluetoothPermissions(): Boolean {
+        val bluetoothPermissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            // Android 12+ permissions
+            arrayOf(
+                Manifest.permission.BLUETOOTH_SCAN,
+                Manifest.permission.BLUETOOTH_CONNECT,
+                Manifest.permission.ACCESS_FINE_LOCATION
+            )
+        } else {
+            // Pre-Android 12 permissions
+            arrayOf(
+                Manifest.permission.BLUETOOTH,
+                Manifest.permission.BLUETOOTH_ADMIN,
+                Manifest.permission.ACCESS_FINE_LOCATION
+            )
+        }
+
+        return bluetoothPermissions.all { permission ->
+            ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED
+        }
+    }
+
+    private fun requestBluetoothPermissions() {
+        if (hasBluetoothPermissions()) {
+            return // Already have permissions
+        }
+
+        val permissionsToRequest = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            arrayOf(
+                Manifest.permission.BLUETOOTH_SCAN,
+                Manifest.permission.BLUETOOTH_CONNECT,
+                Manifest.permission.ACCESS_FINE_LOCATION
+            )
+        } else {
+            arrayOf(
+                Manifest.permission.BLUETOOTH,
+                Manifest.permission.BLUETOOTH_ADMIN,
+                Manifest.permission.ACCESS_FINE_LOCATION
+            )
+        }
+
+        ActivityCompat.requestPermissions(this, permissionsToRequest, PERMISSION_REQUEST_CODE)
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+
+        if (requestCode == PERMISSION_REQUEST_CODE) {
+            if (grantResults.all { it == PackageManager.PERMISSION_GRANTED }) {
+                Log.i("BLE", "All Bluetooth permissions granted - starting BLE monitoring")
+                bleAdapter.startMonitoring()
+            } else {
+                Log.w("BLE", "Some Bluetooth permissions denied - BLE scanning may not work")
+                // Still try to start monitoring, some functionality might work
+                bleAdapter.startMonitoring()
             }
         }
     }
@@ -180,40 +272,18 @@ class MainActivity : ComponentActivity() {
                         // Update app uptime
                         monitor.updateAppStatus(debugMode, System.currentTimeMillis() - appStartTime)
 
-                        // Log network status for debugging (helps verify Bluetooth PAN)
-                        if (debugMode && !useTestData) {
-                            networkDetector.logNetworkStatus()
-                        }
-
-                        // Use test data if enabled, otherwise fetch from xDrip
+                        // Generate test data if enabled
                         if (useTestData) {
-                            val testDataService = TestDataService(applicationContext, monitor)
-                            testDataService.addSingleTestReading()
-                        } else {
-                            // Update HTTP status - attempting connection
-                            monitor.updateHttpStatus(true, 0, null)
-
-                            try {
-                                // First, test basic connectivity (faster than HTTP timeout)
-                                val connectionTest = connectionTester.testConnection(phoneIp, 17580, 3000)
-
-                                if (!connectionTest.success) {
-                                    // Connection test failed - provide detailed error
-                                    throw Exception(connectionTest.errorMessage ?: "Connection test failed")
-                                }
-
-                                // Connection test passed, now fetch glucose data
-                                fetcher.fetchAndSave(phoneIp)
-
-                                // Update HTTP status - success
-                                monitor.updateHttpStatus(false, System.currentTimeMillis(), null)
-                            } catch (e: Exception) {
-                                // Update HTTP status - error with detailed message
-                                Log.e("MainActivity", "Failed to fetch glucose data", e)
-                                monitor.updateHttpStatus(false, 0, e.message)
+                            // Generate initial batch if needed
+                            if (needsInitialTestData) {
+                                generateInitialTestData(dao)
+                                needsInitialTestData = false
                             }
+                            generateTestGlucoseReading(dao)
                         }
 
+                        // BLE monitoring handles data automatically via bleAdapter
+                        
                         // Load the 5 most recent readings from the database
                         val updated = dao.getRecent()
 
@@ -227,8 +297,8 @@ class MainActivity : ComponentActivity() {
                         Log.e("GlucoseApp", "Error updating DB", e)
                     }
 
-                    // Repeat every 60 seconds
-                    delay(60_000L)
+                    // Repeat every 10 seconds (faster when using test data)
+                    delay(10_000L)
                 }
             }
         }
@@ -255,16 +325,17 @@ class MainActivity : ComponentActivity() {
                 .fillMaxSize()
                 .padding(16.dp)
         ) {
-            // Top glucose summary card
+            // Top glucose summary card (Karoo optimized)
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clickable(onClick = onGlucoseClick),
-                shape = RoundedCornerShape(12.dp),
+                    .clickable(onClick = onGlucoseClick)
+                    .height(150.dp), // Karoo: Consistent height
+                shape = RoundedCornerShape(8.dp), // Karoo: Less rounded
                 colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer
+                    containerColor = Color(0xFFF5F5F5) // Original light gray
                 ),
-                elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+                elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
             ) {
                 Column(
                     modifier = Modifier
@@ -279,9 +350,9 @@ class MainActivity : ComponentActivity() {
                         ) {
                             Text(
                                 text = "${latest.glucoseValue}",
-                                fontSize = 72.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                                fontSize = 76.sp, // Karoo: Large but not excessive
+                                fontWeight = FontWeight.ExtraBold, // Karoo: Heavy for outdoor visibility
+                                color = MaterialTheme.colorScheme.onPrimaryContainer // Original theme color
                             )
                             Spacer(modifier = Modifier.width(16.dp))
                             Icon(
@@ -328,12 +399,12 @@ class MainActivity : ComponentActivity() {
                     Card(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(300.dp),
-                        shape = RoundedCornerShape(12.dp),
+                            .height(290.dp), // Karoo: Slightly smaller
+                        shape = RoundedCornerShape(8.dp),
                         colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.surfaceVariant
+                            containerColor = Color(0xFFF5F5F5) // Original light gray
                         ),
-                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
                     ) {
                         Column(
                             modifier = Modifier
@@ -398,7 +469,7 @@ class MainActivity : ComponentActivity() {
             modifier = Modifier
                 .fillMaxWidth()
                 .background(
-                    MaterialTheme.colorScheme.surfaceVariant,
+                    Color(0xFFF5F5F5),
                     RoundedCornerShape(8.dp)
                 )
                 .padding(12.dp),
@@ -504,7 +575,7 @@ class MainActivity : ComponentActivity() {
                     .padding(16.dp)
             ) {
                 Icon(
-                    Icons.Filled.ArrowBack,
+                    Icons.AutoMirrored.Filled.ArrowBack,
                     contentDescription = "Back",
                     modifier = Modifier.size(32.dp),
                     tint = MaterialTheme.colorScheme.onPrimaryContainer
@@ -630,8 +701,10 @@ class MainActivity : ComponentActivity() {
                         setLabelCount(12, false)
                     }
 
-                    // Animation
-                    animateX(800)
+                    // Animation - only enable on debug builds for performance
+                    if (enableChartAnimations) {
+                        animateX(800)
+                    }
                 }
             },
             update = { chart ->
@@ -714,36 +787,96 @@ class MainActivity : ComponentActivity() {
             modifier = Modifier.fillMaxSize()
         )
     }
-
-    // PREVIEWS
-    @Preview(showBackground = true, widthDp = 400, heightDp = 800)
-    @Composable
-    fun PreviewModernGlucoseUI() {
-        val sample = listOf(
-            GlucoseReading(id = 1, timestamp = System.currentTimeMillis(), glucoseValue = 125),
-            GlucoseReading(id = 2, timestamp = System.currentTimeMillis() - 5 * 60_000, glucoseValue = 118),
-            GlucoseReading(id = 3, timestamp = System.currentTimeMillis() - 10 * 60_000, glucoseValue = 112),
-            GlucoseReading(id = 4, timestamp = System.currentTimeMillis() - 15 * 60_000, glucoseValue = 108),
-            GlucoseReading(id = 5, timestamp = System.currentTimeMillis() - 20 * 60_000, glucoseValue = 102),
-            GlucoseReading(id = 6, timestamp = System.currentTimeMillis() - 25 * 60_000, glucoseValue = 98)
-        )
-
-        KarooGlucometerTheme {
-            Surface(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(MaterialTheme.colorScheme.background)
-            ) {
-                ModernGlucoseUI(recent = sample, onGlucoseClick = {})
+    
+    // Test data generator for demonstration purposes
+    private var lastTestReading: Long = 0
+    private var testBaseValue = 120.0 // Starting glucose value
+    private var testTrendDirection = 1 // 1 for up, -1 for down
+    
+    private suspend fun generateTestGlucoseReading(dao: com.example.karooglucometer.data.GlucoseDao) {
+        try {
+            val currentTime = System.currentTimeMillis()
+            
+            // Generate new reading every 30 seconds when in test mode for quick demonstration
+            if (currentTime - lastTestReading < 30_000) return
+            
+            // Create realistic glucose fluctuation
+            val variation = (kotlin.random.Random.nextDouble() - 0.5) * 10 // ±5 mg/dL variation
+            val trend = testTrendDirection * kotlin.random.Random.nextDouble() * 2 // ±2 mg/dL trend
+            
+            testBaseValue += trend + variation
+            
+            // Keep values in realistic range (70-300 mg/dL)
+            testBaseValue = testBaseValue.coerceIn(70.0, 300.0)
+            
+            // Change trend direction occasionally
+            if (kotlin.random.Random.nextDouble() < 0.1) { // 10% chance
+                testTrendDirection *= -1
             }
+            
+            // Create test reading
+            val testReading = GlucoseReading(
+                id = 0, // Room will auto-generate
+                timestamp = currentTime,
+                glucoseValue = testBaseValue.roundToInt()
+            )
+            
+            dao.insert(testReading)
+            lastTestReading = currentTime
+            
+            Log.d("TestData", "Generated test glucose reading: ${testBaseValue.roundToInt()} mg/dL")
+            
+        } catch (e: Exception) {
+            Log.e("TestData", "Error generating test data", e)
         }
     }
-
-    @Preview(showBackground = true, widthDp = 400, heightDp = 800)
-    @Composable
-    fun PreviewFullscreenGlucose() {
-        KarooGlucometerTheme {
-            FullscreenGlucoseView(onBack = {})
+    
+    // Generate initial batch of test data when test mode is first enabled
+    private suspend fun generateInitialTestData(dao: com.example.karooglucometer.data.GlucoseDao) {
+        try {
+            val currentTime = System.currentTimeMillis()
+            val readings = mutableListOf<GlucoseReading>()
+            
+            // Generate 5 readings going back in time (30 minutes, 25 min, 20 min, 15 min, 10 min, 5 min ago)
+            for (i in 6 downTo 1) {
+                val timeOffset = i * 5 * 60 * 1000L // 5 minutes each
+                val timestamp = currentTime - timeOffset
+                
+                // Create realistic progression
+                val baseValue = 115 + (i * 2) + (kotlin.random.Random.nextDouble() - 0.5) * 8
+                val clampedValue = baseValue.coerceIn(70.0, 200.0)
+                
+                readings.add(GlucoseReading(
+                    id = 0,
+                    timestamp = timestamp,
+                    glucoseValue = clampedValue.roundToInt()
+                ))
+            }
+            
+            // Insert all readings
+            readings.forEach { dao.insert(it) }
+            
+            // Update the test baseline to match the last reading
+            testBaseValue = readings.last().glucoseValue.toDouble()
+            lastTestReading = currentTime - 30_000 // Set to allow immediate next generation
+            
+            Log.d("TestData", "Generated ${readings.size} initial test readings")
+            
+        } catch (e: Exception) {
+            Log.e("TestData", "Error generating initial test data", e)
+        }
+    }
+    
+    override fun onDestroy() {
+        super.onDestroy()
+        
+        // Cleanup monitoring resources
+        try {
+            healthMonitor.destroy()
+            dataValidator.stop()
+            bleAdapter.destroy()
+        } catch (e: Exception) {
+            Log.w("MainActivity", "Error cleaning up monitoring resources", e)
         }
     }
 }

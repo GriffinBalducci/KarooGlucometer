@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">BLE Glucose Broadcaster</string>
+    <string name="glucose_service_name">Glucose Broadcasting Service</string>
+    <string name="notification_title">Broadcasting Glucose Data</string>
+    <string name="notification_text">Glucose: %d mg/dL via BLE GATT</string>
+</resources>
