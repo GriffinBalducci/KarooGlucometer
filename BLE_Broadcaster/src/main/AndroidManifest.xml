@@ -23,11 +23,22 @@
         android:required="true" />
 
     <application
+        android:networkSecurityConfig="@xml/network_security_config"
         android:allowBackup="true"
         android:icon="@android:drawable/ic_dialog_info"
         android:label="BLE Broadcaster"
         android:theme="@android:style/Theme.DeviceDefault"
         tools:targetApi="31">
+        <receiver
+            android:name=".XDripReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.eveningoutpost.dexdrip.BgEstimate" />
+                <action android:name="com.eveningoutpost.dexdrip.NS_EMULATOR" />
+                <action android:name="com.eveningoutpost.dexdrip.LAST_BG" />
+            </intent-filter>
+        </receiver>
         
         <activity
             android:name=".MainActivity"
@@ -37,6 +48,7 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+
         </activity>
         
         <service

@@ -183,8 +183,8 @@ class GlucoseDataSourceManager(private val context: Context) {
 
         // Monitor connection states
         scope.launch {
-            bluetoothManager.connectionState.collect { state ->
-                val isConnected = state == GlucoseBluetoothManager.BluetoothGattState.CONNECTED
+            bluetoothManager.glucoseReadings.collect { bleReadings ->
+                val isConnected = bleReadings.isNotEmpty()
                 updateConnectionStatus(DataSource.BLE, isConnected)
             }
         }
