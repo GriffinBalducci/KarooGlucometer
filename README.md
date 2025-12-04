@@ -29,19 +29,21 @@ KarooGlucometer provides real-time glucose monitoring for cyclists using Hammerh
 
 ### With Phone, Scan this QR Code and follow setup prompts:
 
-<img width="500" height="500" alt="broadcasterqr" src="https://github.com/user-attachments/assets/a552c805-c6f2-4e06-8b42-a091db46ec86" />
+
+<img width="400" height="400" alt="My_QR_Code_2-1024" src="https://github.com/user-attachments/assets/a5709ede-4bdb-46e8-a35a-f5ff485b5cc0" />
 
 
 # **Karoo APK Installation – Quick Setup**
 
 ### **1. Download Requirements**
 
-- **Android Platform Tools**  
+- **Android Platform Tools**
+- 
     [https://developer.android.com/tools/releases/platform-tools](https://developer.android.com/tools/releases/platform-tools)  
     → Download and unzip.
     
 - **Receiver APK**  
-    [https://github.com/GriffinBalducci/KarooGlucometer/releases/download/1.1/receiver.apk](https://github.com/GriffinBalducci/KarooGlucometer/releases/download/1.1/receiver.apk)  
+    [https://github.com/GriffinBalducci/KarooGlucometer/releases/download/1.1/receiver.apk](https://github.com/GriffinBalducci/KarooGlucometer/releases/download/2.0/receiver_2.0.apk)  
     → Save/transfer this file into the unzipped **platform-tools** folder.
     
 
